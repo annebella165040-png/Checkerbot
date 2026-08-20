@@ -7,6 +7,10 @@ services:
     envVars:
       - key: BOT_TOKEN
         sync: false
+      - key: CHECKER_API_URL
+        value: https://superassets.in
+      - key: CHECKER_API_KEY
+        sync: false
       - key: ADMIN_IDS
         sync: false
       - key: ADMIN_PASSWORD

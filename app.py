@@ -24,6 +24,10 @@ SERVICES = [
     "CrownIt", "Meesho", "GoSats", "Telegram",
     "WhatsApp", "HabitYoga",
 ]
+SERVICE_IDS = {
+    "MyJio": "jio",
+    "HabitYoga": "habuildyoga",
+}
 PHONE_RE = re.compile(r"^\+?[1-9]\d{7,14}$")
 RATE_LIMIT_SECONDS = 3
 DB_PATH = os.getenv("DATABASE_PATH", "checkerbot.db")
@@ -253,7 +257,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text("❌ Could not parse that mobile number.")
         return
 
-    twilio = await twilio_lookup(e164)
+    checker_result, checker_error = await registration_lookup(service, e164)
 
     suffix = normalized[-4:]
     with closing(db_connect()) as db:
@@ -263,28 +267,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         db.commit()
 
+    if checker_error:
+        status_line = f"⚠️ <b>Status:</b> {checker_error}"
+    elif checker_result is True:
+        status_line = "✅ <b>Registered</b>"
+    else:
+        status_line = "❌ <b>Not Registered</b>"
     details = [
         f"{premium('🔎')} <b>{service}</b>\n"
         f"Number: <code>••••••{suffix}</code>\n\n"
-        f"{'✅' if valid else '❌'} <b>Valid range:</b> {'Yes' if valid else 'No'}\n"
-        f"{'✅' if possible else '❌'} <b>Possible length:</b> {'Yes' if possible else 'No'}\n"
+        f"{status_line}\n\n"
         f"🌍 <b>Region:</b> {region}\n"
         f"📡 <b>Number type:</b> {line_type}\n"
         f"🏢 <b>Original carrier:</b> {original_carrier}\n"
         f"🕒 <b>Timezone:</b> {zones}"
     ]
-    if twilio:
-        live_type = twilio.get("line_type_intelligence") or {}
-        line_status = twilio.get("line_status") or {}
-        details.append(
-            "\n\n<b>Live provider intelligence</b>\n"
-            f"📶 <b>Current carrier:</b> {live_type.get('carrier_name') or 'Unavailable'}\n"
-            f"☎️ <b>Live line type:</b> {live_type.get('type') or 'Unavailable'}\n"
-            f"🟢 <b>Line status:</b> {line_status.get('status') or 'Unavailable'}"
-        )
-    details.append(
-        "\n\nℹ️ Third-party account registration status is not exposed by an authorized API."
-    )
     await update.message.reply_text(
         "".join(details),
         parse_mode=ParseMode.HTML,
@@ -292,25 +289,39 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
 
 
-async def twilio_lookup(number: str):
-    account_sid = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
-    auth_token = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
-    if not account_sid or not auth_token:
-        return None
-    fields = os.getenv("TWILIO_LOOKUP_FIELDS", "").strip()
-    params = {"Fields": fields} if fields else {}
+async def registration_lookup(service: str, number: str):
+    api_url = os.getenv("CHECKER_API_URL", "https://superassets.in").strip().rstrip("/")
+    api_key = os.getenv("CHECKER_API_KEY", "").strip()
+    if not api_key:
+        return None, "Checker API is not configured"
+    service_id = SERVICE_IDS.get(service, service.lower())
     try:
         async with httpx.AsyncClient(timeout=12) as client:
             response = await client.get(
-                f"https://lookups.twilio.com/v2/PhoneNumbers/{number}",
-                params=params,
-                auth=(account_sid, auth_token),
+                f"{api_url}/api/v1/check",
+                params={"service": service_id, "number": number.lstrip("+")},
+                headers={"X-API-Key": api_key},
             )
+            if response.status_code == 429:
+                return None, "Rate limit reached; try again shortly"
             response.raise_for_status()
-            return response.json()
+            payload = response.json()
     except (httpx.HTTPError, ValueError) as exc:
-        logger.warning("Twilio Lookup unavailable: %s", type(exc).__name__)
-        return None
+        logger.warning("Registration lookup unavailable: %s", type(exc).__name__)
+        return None, "Checker service temporarily unavailable"
+
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    registered = data.get("registered")
+    if isinstance(registered, bool):
+        return registered, None
+    if isinstance(registered, str) and registered.lower() in {"true", "false"}:
+        return registered.lower() == "true", None
+    status = str(data.get("status", data.get("result", ""))).strip().lower()
+    if status in {"registered", "found", "active", "true", "yes"}:
+        return True, None
+    if status in {"not_registered", "not registered", "not-found", "not_found", "false", "no"}:
+        return False, None
+    return None, "Provider returned an undetermined result"
 
 
 async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
