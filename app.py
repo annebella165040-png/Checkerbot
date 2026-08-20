@@ -60,12 +60,27 @@ EMOJI_IDS = {
     "home": "6204010762206189094",
     "upi": "6019521004647223512",
     "usdt": "6035152649790164056",
+    "payment": "5395358455768837479",
+    "name": "5190806721286657692",
+    "link": "5339286072876614251",
+    "id": "5404561694510833322",
+    "joined": "5195033767969839232",
+    "lightning": "5224607267797606837",
+    "phone": "6206446249181189526",
+    "money": "6206378324273403309",
+    "history": "6206497372176913599",
+    "refresh": "5339233635620899144",
+    "star": "6204162490515855272",
+    "wave": "5247133031235329609",
 }
 EMOJI_FALLBACKS = {
     "sparkle": "✨", "profile": "👤", "search": "🔎", "credits": "💎",
     "referral": "👥", "support": "🖥️", "buy": "💳", "back": "📶",
     "check": "✅", "gift": "🎁", "help": "🎵", "miniapp": "🖥️",
     "home": "🏠", "upi": "💸", "usdt": "🖥️",
+    "payment": "💳", "name": "📛", "link": "🔗", "id": "🆔",
+    "joined": "📅", "lightning": "⚡", "phone": "📱", "money": "💰",
+    "history": "📋", "refresh": "🔄", "star": "⭐", "wave": "〰️",
 }
 
 SC_MAP = {
@@ -233,6 +248,10 @@ def premium(emoji: str, name: str = "sparkle") -> str:
     return f'<tg-emoji emoji-id="{emoji_id}">{entity_text}</tg-emoji>'
 
 
+def divider() -> str:
+    return premium("〰️", "wave") * 10
+
+
 def styled_button(text: str, data: str, style: str = "primary", emoji: str = "") -> InlineKeyboardButton:
     extras = {"style": style}
     emoji_id = PREMIUM_EMOJI_ID or EMOJI_IDS.get(emoji, "")
@@ -267,11 +286,11 @@ def dashboard_button(text: str, style: str, emoji: str) -> KeyboardButton:
 def dashboard_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [
-            [dashboard_button("CHECK SERVICES", "success", "search"), dashboard_button("PROFILE", "primary", "profile")],
-            [dashboard_button("BUY CREDIT", "success", "buy"), dashboard_button("MINI APP", "primary", "miniapp")],
-            [dashboard_button("GIFT CARD", "success", "gift"), dashboard_button("REFER & EARN", "success", "referral")],
-            [dashboard_button("HOW IT WORKS", "primary", "help"), dashboard_button("BACK", "primary", "back")],
+            [dashboard_button("CHECK SERVICES", "primary", "search"), dashboard_button("PROFILE", "success", "profile")],
             [dashboard_button("SUPPORT", "danger", "support")],
+            [dashboard_button("BUY CREDIT", "primary", "buy"), dashboard_button("MINI APP", "success", "miniapp")],
+            [dashboard_button("GIFT CARD", "danger", "gift"), dashboard_button("REFER & EARN", "primary", "referral")],
+            [dashboard_button("HOW IT WORKS", "success", "help"), dashboard_button("BACK", "danger", "back")],
         ],
         resize_keyboard=True,
         is_persistent=True,
@@ -398,16 +417,19 @@ def profile_text(user_id: int) -> str:
     name, username, credits, referrals, first_seen, unlocked = user_summary(user_id)
     mini_status = "UNLOCKED" if unlocked else f"LOCKED — {max(0, MINI_APP_COST - credits)} MORE CREDITS REQUIRED"
     return (
-        f"{premium('◆', 'profile')} <b>ANNEBELLA MEMBER PROFILE</b>\n\n"
-        f"{premium('◆', 'profile')} <b>ACCOUNT HOLDER</b>\n{name or 'Telegram User'}\n\n"
-        f"{premium('◆', 'sparkle')} <b>USERNAME</b>\n{'@' + username if username else 'Not configured'}\n\n"
-        f"{premium('◆', 'home')} <b>TELEGRAM ID</b>\n<code>{user_id}</code>\n\n"
-        f"{premium('◆', 'credits')} <b>AVAILABLE CREDITS</b>\n{credits} credits\n\n"
-        f"{premium('◆', 'referral')} <b>SUCCESSFUL REFERRALS</b>\n{referrals}\n\n"
+        f"{premium('◆', 'profile')} <b>MY ANNEBELLA PROFILE</b>\n{divider()}\n\n"
+        f"{premium('◆', 'name')} <b>NAME</b> : {name or 'Telegram User'}\n"
+        f"{premium('◆', 'link')} <b>USERNAME</b> : {'@' + username if username else 'Not connected'}\n"
+        f"{premium('◆', 'id')} <b>TELEGRAM ID</b> : <code>{user_id}</code>\n"
+        f"{premium('◆', 'joined')} <b>JOINED ON</b> : {time.strftime('%d %B %Y', time.localtime(first_seen))}\n"
+        f"{divider()}\n\n"
+        f"{premium('◆', 'lightning')} <b>CHECKER ACCESS</b>\nREADY — {CHECK_COST} credits per determined lookup\n\n"
         f"{premium('◆', 'miniapp')} <b>MINI APP ACCESS</b>\n{mini_status}\n\n"
-        f"{premium('◆', 'check')} <b>ACCOUNT STATUS</b>\nACTIVE AND VERIFIED\n\n"
-        f"{premium('◆', 'help')} <b>MEMBER SINCE</b>\n{time.strftime('%d %B %Y', time.localtime(first_seen))}\n\n"
-        f"{premium('◆', 'support')} Balance changes are protected by the account ledger and occur only after determined checks, verified referrals, redeemed gift cards, or approved payments."
+        f"{premium('◆', 'check')} <b>ACCOUNT STATUS</b>\nACTIVE — FORCE-JOIN VERIFIED\n"
+        f"{divider()}\n\n"
+        f"{premium('◆', 'referral')} <b>TOTAL REFERRALS</b> : {referrals}\n"
+        f"{premium('◆', 'credits')} <b>AVAILABLE CREDITS</b> : {credits}\n\n"
+        f"{premium('◆', 'refresh')} Referral rewards, gift cards and approved payments are added automatically."
     )
 
 
@@ -455,9 +477,10 @@ def usdt_payment_keyboard() -> InlineKeyboardMarkup:
 async def send_payment_methods(message, package: dict) -> None:
     amount = f"₹{package['price']}" if package.get("price") is not None else "Manually confirmed amount"
     await message.reply_text(
-        f"{premium('◆', 'buy')} <b>SELECT PAYMENT METHOD</b>\n\n"
-        f"<b>PACKAGE</b>\n{package['credits']} credits\n\n<b>PAYABLE AMOUNT</b>\n{amount}\n\n"
-        "Choose UPI or USDT to receive the configured payment destination.",
+        f"{premium('◆', 'payment')} <b>SELECT PAYMENT METHOD</b>\n{divider()}\n\n"
+        f"{premium('◆', 'credits')} <b>PACKAGE:</b> {package['credits']} CREDITS\n"
+        f"{premium('◆', 'money')} <b>PAYABLE AMOUNT:</b> {amount}\n\n"
+        f"{premium('◆', 'upi')} Choose UPI for a payment QR.\n{premium('◆', 'usdt')} Choose USDT for copy-ready wallet details.",
         parse_mode=ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup([[
             styled_button("UPI PAYMENT", "paymethod_upi", "success", "upi"),
@@ -562,7 +585,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
         elif text == "BUY CREDIT":
             await update.message.reply_text(
-                f"{premium('◆', 'buy')} <b>ANNEBELLA CREDIT STORE</b>\n\n"
+                f"{premium('◆', 'buy')} <b>ANNEBELLA CREDIT STORE</b>\n{divider()}\n\n"
                 "<b>AVAILABLE PACKAGES</b>\n"
                 f"{premium('◆', 'credits')} 100 credits — ₹49\n{premium('◆', 'credits')} 500 credits — ₹199\n"
                 f"{premium('◆', 'credits')} 1000 credits — ₹349\n{premium('◆', 'credits')} 5000 credits — ₹999\n\n"
@@ -601,18 +624,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
         elif text == "HOW IT WORKS":
             await update.message.reply_text(
-                f"{premium('◆', 'help')} <b>ADVANCED OPERATING GUIDE</b>\n\n"
-                f"<b>1 — ACCOUNT ACTIVATION</b>\nNew members receive {SIGNUP_CREDITS} complimentary credits after passing force-join verification.\n\n"
-                f"<b>2 — APPLICATION CHECK</b>\nOpen CHECK SERVICES, select an inline application button, and submit an authorized mobile number in international format. A determined result costs {CHECK_COST} credits; provider failures and undetermined responses cost nothing.\n\n"
-                f"<b>3 — CREDIT GROWTH</b>\nInvite genuine users for {REFERRAL_CREDITS} credits each, redeem administrator-issued gift cards, or purchase a verified package.\n\n"
-                f"<b>4 — MINI APP</b>\nMaintain at least {MINI_APP_COST} credits and confirm the one-time unlock to activate the web dashboard permanently.\n\n"
-                "<b>5 — RESPONSIBLE USE</b>\nProcess only numbers you own or are authorized to verify. Never use the bot for harassment, unsolicited profiling, or unauthorized account discovery.",
+                f"{premium('◆', 'help')} <b>HOW ANNEBELLA CHECKER WORKS</b>\n{divider()}\n\n"
+                f"{premium('◆', 'lightning')} <b>1 — ACTIVATE YOUR ACCOUNT</b>\nJoin every required channel and verify membership. New members receive <b>{SIGNUP_CREDITS} welcome credits</b> automatically.\n\n"
+                f"{premium('◆', 'search')} <b>2 — SELECT A CHECKER</b>\nOpen Check Services and choose the required application from the inline checker directory.\n\n"
+                f"{premium('◆', 'phone')} <b>3 — SUBMIT THE NUMBER</b>\nSend an authorized mobile number with country code, for example <code>+919876543210</code>.\n\n"
+                f"{premium('◆', 'check')} <b>4 — RECEIVE THE RESULT</b>\nThe provider returns Registered or Not Registered. Only a determined result costs <b>{CHECK_COST} credits</b>; provider errors cost zero.\n"
+                f"{divider()}\n\n"
+                f"{premium('◆', 'referral')} <b>REFER & EARN</b>\nReceive <b>{REFERRAL_CREDITS} credits</b> for each genuine new member who joins through your personal referral link.\n\n"
+                f"{premium('◆', 'gift')} <b>GIFT CARDS & PAYMENTS</b>\nRedeem administrator-issued cards or purchase a verified UPI/USDT credit package.\n\n"
+                f"{premium('◆', 'miniapp')} <b>MINI APP ACCESS</b>\nUnlock permanent Mini App access once your balance reaches <b>{MINI_APP_COST} credits</b>.\n"
+                f"{divider()}\n\n"
+                f"{premium('◆', 'support')} <b>RESPONSIBLE USE</b>\nCheck only numbers you own or are explicitly authorized to verify.",
                 parse_mode=ParseMode.HTML,
             )
         elif text == "SUPPORT":
             context.user_data["flow"] = "support"
             await update.message.reply_text(
-                f"{premium('◆', 'support')} <b>ANNEBELLA PRIORITY SUPPORT</b>\n\n"
+                f"{premium('◆', 'support')} <b>ANNEBELLA PRIORITY SUPPORT</b>\n{divider()}\n\n"
                 "Send one complete message containing the affected checker, approximate time, expected result, and displayed error. "
                 "For payment assistance include only the transaction reference—never send an OTP, PIN, password, or wallet recovery phrase.",
                 parse_mode=ParseMode.HTML,
@@ -929,9 +957,10 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             context.user_data["payment"] = packages[query.data]
             context.user_data["flow"] = "payment_method"
             await query.edit_message_text(
-                f"{premium('◆', 'buy')} <b>SELECT PAYMENT METHOD</b>\n\n"
-                f"<b>PACKAGE</b>\n{packages[query.data]['credits']} credits\n\n"
-                f"<b>PAYABLE AMOUNT</b>\n₹{packages[query.data]['price']}",
+                f"{premium('◆', 'payment')} <b>SELECT PAYMENT METHOD</b>\n{divider()}\n\n"
+                f"{premium('◆', 'credits')} <b>PACKAGE:</b> {packages[query.data]['credits']} CREDITS\n"
+                f"{premium('◆', 'money')} <b>PAYABLE AMOUNT:</b> ₹{packages[query.data]['price']}\n\n"
+                f"{premium('◆', 'upi')} UPI QR or {premium('◆', 'usdt')} USDT wallet details choose karo.",
                 parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup([[
                     styled_button("UPI PAYMENT", "paymethod_upi", "success", "upi"),
@@ -951,11 +980,11 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             destination = os.getenv("PAYMENT_UPI_ID", "gauravpayout@fam").strip()
             amount = "₹" + str(package["price"]) if package.get("price") is not None else "Custom/manual"
             caption = (
-                f"{premium('◆', 'upi')} <b>ANNEBELLA UPI PAYMENT</b>\n\n"
-                f"<b>PACKAGE</b>\n{package['credits']} credits\n\n"
-                f"<b>PAYABLE AMOUNT</b>\n{amount}\n\n"
-                f"<b>UPI ID</b>\n<code>{destination}</code>\n\n"
-                "Scan the QR or copy the UPI ID below. Verify the recipient before paying, then send the successful payment screenshot in this chat for administrator approval."
+                f"{premium('◆', 'payment')} <b>ANNEBELLA PAYMENT QR</b>\n{divider()}\n\n"
+                f"{premium('◆', 'credits')} <b>PACKAGE:</b> {package['credits']} CREDITS\n"
+                f"{premium('◆', 'money')} <b>AMOUNT:</b> {amount}\n"
+                f"{premium('◆', 'upi')} <b>UPI:</b> <code>{destination}</code>\n\n"
+                f"{premium('◆', 'history')} Scan the QR or copy the UPI ID, complete payment, then send the successful screenshot here for administrator approval."
             )
             await query.message.reply_photo(
                 photo=payment_qr_url(package["credits"], package.get("price")),
@@ -966,16 +995,16 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         else:
             instructions = (
-                f"<b>BINANCE ID</b>\n<code>{os.getenv('USDT_BINANCE_ID', '1114491025')}</code>\n\n"
-                f"<b>BSC / BNB — BEP20</b>\n<code>{os.getenv('USDT_BEP20_ADDRESS', '0x430b7abc929366ba7c4e3ca26b6c4177590c0c4f')}</code>\n\n"
-                f"<b>TRX / TRON — TRC20</b>\n<code>{os.getenv('USDT_TRC20_ADDRESS', 'TDfzW7sn7Hut3uQr6Gnk6TyVN2aG6UoUEn')}</code>\n\n"
-                f"<b>ETH / ETHEREUM — ERC20</b>\n<code>{os.getenv('USDT_ERC20_ADDRESS', '0x430b7abc929366ba7c4e3ca26b6c4177590c0c4f')}</code>"
+                f"{premium('◆', 'usdt')} <b>BINANCE ID</b>\n<code>{os.getenv('USDT_BINANCE_ID', '1114491025')}</code>\n\n"
+                f"{premium('◆', 'star')} <b>BSC / BNB — BEP20</b>\n<code>{os.getenv('USDT_BEP20_ADDRESS', '0x430b7abc929366ba7c4e3ca26b6c4177590c0c4f')}</code>\n\n"
+                f"{premium('◆', 'star')} <b>TRX / TRON — TRC20</b>\n<code>{os.getenv('USDT_TRC20_ADDRESS', 'TDfzW7sn7Hut3uQr6Gnk6TyVN2aG6UoUEn')}</code>\n\n"
+                f"{premium('◆', 'star')} <b>ETH / ETHEREUM — ERC20</b>\n<code>{os.getenv('USDT_ERC20_ADDRESS', '0x430b7abc929366ba7c4e3ca26b6c4177590c0c4f')}</code>"
             )
         await query.edit_message_text(
-            f"{premium('◆', method)} <b>{method.upper()} PAYMENT INSTRUCTIONS</b>\n\n"
-            f"<b>PACKAGE</b>\n{package['credits']} credits\n\n"
-            f"<b>AMOUNT</b>\n{'₹' + str(package['price']) if package.get('price') is not None else 'Custom/manual'}\n\n"
-            f"{instructions}\n\nSelect the exact network used by the sender. Use the copy buttons below to prevent typing mistakes, then send the successful payment screenshot in this chat. Credits remain pending until administrator approval.",
+            f"{premium('◆', 'usdt')} <b>USDT PAYMENT</b>\n{divider()}\n\n"
+            f"{premium('◆', 'credits')} <b>PACKAGE:</b> {package['credits']} CREDITS\n"
+            f"{premium('◆', 'money')} <b>AMOUNT:</b> {'₹' + str(package['price']) if package.get('price') is not None else 'CUSTOM / MANUAL'}\n\n"
+            f"{instructions}\n\n{premium('◆', 'history')} Select the exact sender network, use a copy button below, complete payment, then send the successful screenshot here for approval.",
             parse_mode=ParseMode.HTML,
             reply_markup=usdt_payment_keyboard(),
         )
@@ -1040,7 +1069,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
     elif query.data == "buy":
         await query.edit_message_text(
-            f"{premium('◆', 'buy')} <b>ANNEBELLA CREDIT STORE</b>\n\n"
+            f"{premium('◆', 'buy')} <b>ANNEBELLA CREDIT STORE</b>\n{divider()}\n\n"
             f"{premium('◆', 'credits')} <b>AVAILABLE PACKAGES</b>\n"
             f"{premium('◆', 'credits')} 100 credits — ₹49\n{premium('◆', 'credits')} 500 credits — ₹199\n"
             f"{premium('◆', 'credits')} 1000 credits — ₹349\n{premium('◆', 'credits')} 5000 credits — ₹999\n\n"
