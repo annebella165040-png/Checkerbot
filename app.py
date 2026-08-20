@@ -12,7 +12,8 @@ from flask import Flask, flash, redirect, render_template, request, session, url
 import httpx
 import phonenumbers
 from phonenumbers import carrier, geocoder, timezone
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, Update, WebAppInfo
 from telegram.constants import ChatMemberStatus, ParseMode
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
@@ -36,9 +37,10 @@ WEB_PORT = int(os.getenv("PORT", "8080"))
 PREMIUM_EMOJI_ID = os.getenv("PREMIUM_EMOJI_ID", "").strip()
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").strip().lstrip("@")
 SUPPORT_URL = os.getenv("SUPPORT_URL", "https://t.me/annebella").strip()
-SIGNUP_CREDITS = int(os.getenv("SIGNUP_CREDITS", "10"))
-REFERRAL_CREDITS = int(os.getenv("REFERRAL_CREDITS", "5"))
-CHECK_COST = int(os.getenv("CHECK_COST", "1"))
+SIGNUP_CREDITS = int(os.getenv("SIGNUP_CREDITS", "150"))
+REFERRAL_CREDITS = int(os.getenv("REFERRAL_CREDITS", "20"))
+CHECK_COST = int(os.getenv("CHECK_COST", "5"))
+MINI_APP_COST = int(os.getenv("MINI_APP_COST", "1000"))
 
 EMOJI_IDS = {
     "sparkle": "5289722755871162900",
@@ -50,6 +52,17 @@ EMOJI_IDS = {
     "buy": "5445353829304387411",
     "back": "5352759161945867747",
     "check": "6206479140040743133",
+    "gift": "5359664288241829619",
+    "help": "6206108815075579644",
+    "miniapp": "6035152649790164056",
+    "home": "6204010762206189094",
+    "upi": "6019521004647223512",
+    "usdt": "6035152649790164056",
+}
+
+DASHBOARD_ACTIONS = {
+    "CHECK SERVICES", "PROFILE", "BUY CREDIT", "MINI APP",
+    "GIFT CARD", "REFER & EARN", "HOW IT WORKS", "SUPPORT",
 }
 
 logging.basicConfig(
@@ -82,7 +95,8 @@ def init_db() -> None:
                 banned INTEGER NOT NULL DEFAULT 0,
                 credits INTEGER NOT NULL DEFAULT 0,
                 referred_by INTEGER,
-                referral_count INTEGER NOT NULL DEFAULT 0
+                referral_count INTEGER NOT NULL DEFAULT 0,
+                mini_app_unlocked INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS searches (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -123,6 +137,14 @@ def init_db() -> None:
                 status TEXT NOT NULL DEFAULT 'open',
                 created_at INTEGER NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS gift_cards (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                code TEXT NOT NULL UNIQUE,
+                credits INTEGER NOT NULL,
+                used_by INTEGER,
+                used_at INTEGER,
+                created_at INTEGER NOT NULL
+            );
             """
         )
         columns = {row[1] for row in db.execute("PRAGMA table_info(users)")}
@@ -132,6 +154,7 @@ def init_db() -> None:
             "credits": "ALTER TABLE users ADD COLUMN credits INTEGER NOT NULL DEFAULT 0",
             "referred_by": "ALTER TABLE users ADD COLUMN referred_by INTEGER",
             "referral_count": "ALTER TABLE users ADD COLUMN referral_count INTEGER NOT NULL DEFAULT 0",
+            "mini_app_unlocked": "ALTER TABLE users ADD COLUMN mini_app_unlocked INTEGER NOT NULL DEFAULT 0",
         }
         for column, statement in migrations.items():
             if column not in columns:
@@ -162,20 +185,37 @@ def styled_url_button(text: str, url: str, style: str = "primary", emoji: str = 
     return InlineKeyboardButton(text, url=url, api_kwargs=extras)
 
 
+def dashboard_button(text: str, style: str, emoji: str) -> KeyboardButton:
+    return KeyboardButton(
+        text,
+        api_kwargs={"style": style, "icon_custom_emoji_id": EMOJI_IDS[emoji]},
+    )
+
+
+def dashboard_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        [
+            [dashboard_button("CHECK SERVICES", "success", "search"), dashboard_button("PROFILE", "primary", "profile")],
+            [dashboard_button("BUY CREDIT", "success", "buy"), dashboard_button("MINI APP", "primary", "miniapp")],
+            [dashboard_button("GIFT CARD", "success", "gift"), dashboard_button("REFER & EARN", "success", "referral")],
+            [dashboard_button("HOW IT WORKS", "primary", "help"), dashboard_button("SUPPORT", "danger", "support")],
+        ],
+        resize_keyboard=True,
+        is_persistent=True,
+        input_field_placeholder="Select an Annebella dashboard service",
+    )
+
+
 def menu() -> InlineKeyboardMarkup:
     buttons = [styled_button(name, f"service:{name}", "primary", "search") for name in SERVICES]
     rows = [buttons[index:index + 3] for index in range(0, len(buttons), 3)]
-    rows.extend([
-        [styled_button("👤 My Profile", "profile", "primary", "profile"), styled_button("💎 Buy Credits", "buy", "success", "buy")],
-        [styled_button("👥 Refer & Earn", "referral", "success", "referral"), styled_button("🛟 Support", "support", "danger", "support")],
-        [styled_button("📖 How It Works", "help", "primary", "sparkle")],
-    ])
     return InlineKeyboardMarkup(rows)
 
 
 def join_menu(channels) -> InlineKeyboardMarkup:
-    rows = [[styled_url_button(f"📢 Join {title}", url, "primary", "sparkle")] for _, title, url in channels]
-    rows.append([styled_button("✅ Verify Membership", "verify_join", "success", "check")])
+    buttons = [styled_url_button(f"JOIN {title}", url, "primary", "sparkle") for _, title, url in channels]
+    rows = [buttons[index:index + 2] for index in range(0, len(buttons), 2)]
+    rows.append([styled_button("VERIFY MEMBERSHIP", "verify_join", "success", "check")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -205,7 +245,7 @@ async def gate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     with closing(db_connect()) as db:
         row = db.execute("SELECT banned FROM users WHERE telegram_id = ?", (update.effective_user.id,)).fetchone()
     if row and row[0]:
-        await update.effective_message.reply_text("🚫 Your access has been suspended.")
+        await update.effective_message.reply_text(f"{premium('◆', 'support')} <b>ACCESS SUSPENDED</b>\n\nContact support if you believe this restriction is incorrect.", parse_mode=ParseMode.HTML)
         return False
     channels = enabled_channels()
     if channels and not await membership_ok(update.effective_user.id, context):
@@ -260,9 +300,69 @@ def remember_user(update: Update, referred_by: int | None = None) -> bool:
 def user_summary(user_id: int):
     with closing(db_connect()) as db:
         return db.execute(
-            "SELECT first_name, username, credits, referral_count, first_seen FROM users WHERE telegram_id = ?",
+            "SELECT first_name, username, credits, referral_count, first_seen, mini_app_unlocked FROM users WHERE telegram_id = ?",
             (user_id,),
         ).fetchone()
+
+
+def mini_app_link(user_id: int) -> str | None:
+    base_url = os.getenv("MINI_APP_URL", os.getenv("PUBLIC_APP_URL", "")).strip().rstrip("/")
+    if not base_url:
+        return None
+    token = URLSafeTimedSerializer(web.secret_key).dumps({"user_id": user_id}, salt="mini-app")
+    return f"{base_url}/miniapp?token={token}"
+
+
+def profile_text(user_id: int) -> str:
+    name, username, credits, referrals, first_seen, unlocked = user_summary(user_id)
+    mini_status = "UNLOCKED" if unlocked else f"LOCKED — {max(0, MINI_APP_COST - credits)} MORE CREDITS REQUIRED"
+    return (
+        f"{premium('◆', 'profile')} <b>ANNEBELLA MEMBER PROFILE</b>\n\n"
+        f"<b>ACCOUNT HOLDER</b>\n{name or 'Telegram User'}\n\n"
+        f"<b>USERNAME</b>\n{'@' + username if username else 'Not configured'}\n\n"
+        f"<b>TELEGRAM ID</b>\n<code>{user_id}</code>\n\n"
+        f"<b>AVAILABLE CREDITS</b>\n{credits}\n\n"
+        f"<b>SUCCESSFUL REFERRALS</b>\n{referrals}\n\n"
+        f"<b>MINI APP ACCESS</b>\n{mini_status}\n\n"
+        f"<b>MEMBER SINCE</b>\n{time.strftime('%d %B %Y', time.localtime(first_seen))}\n\n"
+        "Your balance changes only after determined checks, verified referrals, redeemed gift cards, or approved payments."
+    )
+
+
+def referral_text(user_id: int, bot_username: str) -> tuple[str, str]:
+    row = user_summary(user_id)
+    link = f"https://t.me/{bot_username}?start=ref_{user_id}"
+    text = (
+        f"{premium('◆', 'referral')} <b>ANNEBELLA REFER & EARN</b>\n\n"
+        f"Earn <b>{REFERRAL_CREDITS} credits</b> whenever a genuine new member starts the bot through your personal link.\n\n"
+        f"<b>SUCCESSFUL REFERRALS</b>\n{row[3]}\n\n"
+        f"<b>TOTAL REFERRAL EARNINGS</b>\n{row[3] * REFERRAL_CREDITS} credits\n\n"
+        f"<b>PERSONAL INVITATION LINK</b>\n<code>{link}</code>\n\n"
+        "Self-referrals, duplicate accounts, and users who previously started the bot do not qualify. Rewards are credited automatically."
+    )
+    return text, link
+
+
+def buy_packages_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [styled_button("100 CREDITS — ₹49", "buy_100", "success", "credits"), styled_button("500 CREDITS — ₹199", "buy_500", "primary", "credits")],
+        [styled_button("1000 CREDITS — ₹349", "buy_1000", "success", "buy"), styled_button("5000 CREDITS — ₹999", "buy_5000", "primary", "buy")],
+        [styled_button("CUSTOM PACKAGE", "buy_custom", "danger", "buy")],
+    ])
+
+
+async def send_payment_methods(message, package: dict) -> None:
+    amount = f"₹{package['price']}" if package.get("price") is not None else "Manually confirmed amount"
+    await message.reply_text(
+        f"{premium('◆', 'buy')} <b>SELECT PAYMENT METHOD</b>\n\n"
+        f"<b>PACKAGE</b>\n{package['credits']} credits\n\n<b>PAYABLE AMOUNT</b>\n{amount}\n\n"
+        "Choose UPI or USDT to receive the configured payment destination.",
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup([[
+            styled_button("UPI PAYMENT", "paymethod_upi", "success", "upi"),
+            styled_button("USDT PAYMENT", "paymethod_usdt", "primary", "usdt"),
+        ]]),
+    )
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -270,26 +370,35 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if context.args and context.args[0].startswith("ref_"):
         value = context.args[0][4:]
         referred_by = int(value) if value.isdigit() else None
-    is_new = remember_user(update, referred_by)
+    context.user_data["pending_referrer"] = referred_by
+    if not await gate(update, context):
+        return
+    is_new = remember_user(update, context.user_data.pop("pending_referrer", None))
     if is_new and referred_by and referred_by != update.effective_user.id:
         try:
             await context.bot.send_message(
                 referred_by,
-                f"🎉 <b>Referral reward credited</b>\n\nA new user joined through your link. "
+                f"{premium('◆', 'referral')} <b>REFERRAL REWARD CREDITED</b>\n\nA new user joined through your link. "
                 f"<b>{REFERRAL_CREDITS} credits</b> have been added to your Annebella account.",
                 parse_mode=ParseMode.HTML,
             )
         except Exception:
             logger.info("Could not deliver referral notification to %s", referred_by)
-    if not await gate(update, context):
-        return
     context.user_data.pop("service", None)
-    signup_note = f"\n\n🎁 <b>Welcome bonus:</b> {SIGNUP_CREDITS} credits added." if is_new else ""
+    signup_note = f"\n\n{premium('◆', 'gift')} <b>Welcome bonus:</b> {SIGNUP_CREDITS} credits added." if is_new else ""
     await update.message.reply_text(
         f"{premium('✨')} <b>Welcome to {BOT_NAME}</b>\n\n"
         "Professional multi-service registration intelligence in one secure interface. "
-        "Choose a checker, enter an authorized mobile number, and receive a clear provider response."
-        f"\n\n💎 <b>Per successful lookup:</b> {CHECK_COST} credit{signup_note}",
+        "Use the persistent dashboard below for your profile, credits, Mini App, gift cards, referrals, guidance, and support."
+        f"\n\n{premium('◆', 'credits')} <b>Per determined lookup:</b> {CHECK_COST} credits"
+        f"\n{premium('◆', 'referral')} <b>Referral reward:</b> {REFERRAL_CREDITS} credits"
+        f"{signup_note}",
+        parse_mode=ParseMode.HTML,
+        reply_markup=dashboard_keyboard(),
+    )
+    await update.message.reply_text(
+        f"{premium('◆', 'search')} <b>Checker Service Directory</b>\n\n"
+        "Select the application you want to check. Application choices remain inline for a clean, focused workflow.",
         parse_mode=ParseMode.HTML,
         reply_markup=menu(),
     )
@@ -299,47 +408,145 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not await gate(update, context):
         return
     await update.message.reply_text(
-        f"{premium('📖')} <b>How To Use</b>\n\n"
-        "1️⃣ Send /start\n2️⃣ Choose a checker\n3️⃣ Send a number with country code\n"
+        f"{premium('◆', 'help')} <b>HOW TO USE</b>\n\n"
+        "<b>1.</b> Send /start\n<b>2.</b> Choose CHECK SERVICES\n<b>3.</b> Select an inline application\n<b>4.</b> Send a number with country code\n"
         "Example: <code>+919876543210</code>\n\n"
         "This bot validates input and reports only data available through configured, "
         "authorized integrations. It does not bypass OTPs or expose private account data.",
         parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup([[styled_button("⬅️ Main Menu", "main_menu", "primary")]]),
+        reply_markup=InlineKeyboardMarkup([[styled_button("MAIN MENU", "main_menu", "primary", "home")]]),
     )
 
 
 async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     configured = {value.strip() for value in os.getenv("ADMIN_IDS", "").split(",") if value.strip()}
     if str(update.effective_user.id) not in configured:
-        await update.message.reply_text("❌ You are not authorized to use this command.")
+        await update.message.reply_text(f"{premium('◆', 'support')} <b>ADMINISTRATOR ACCESS REQUIRED</b>", parse_mode=ParseMode.HTML)
         return
 
     with closing(db_connect()) as db:
         users = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         searches = db.execute("SELECT COUNT(*) FROM searches").fetchone()[0]
     await update.message.reply_text(
-        f"★ Bot Statistics ★\n├ Active Users: {users}\n└ Total Searches: {searches}"
+        f"ANNEBELLA BOT STATISTICS\n\nActive Users: {users}\nTotal Searches: {searches}"
     )
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    remember_user(update)
     if not await gate(update, context):
         return
+    remember_user(update)
     text = update.message.text.strip()
 
-    flow = context.user_data.get("flow")
-    if flow == "payment_reference":
-        match = re.fullmatch(r"(\d{2,6})\s+(.{4,80})", text)
-        if not match:
+    if text in DASHBOARD_ACTIONS:
+        context.user_data.pop("flow", None)
+        context.user_data.pop("service", None)
+        if text == "CHECK SERVICES":
             await update.message.reply_text(
-                "❌ <b>Invalid payment submission</b>\n\nSend: <code>credits transaction_reference</code>\n"
-                "Example: <code>100 UPI123456789</code>", parse_mode=ParseMode.HTML
+                f"{premium('◆', 'search')} <b>CHECKER SERVICE DIRECTORY</b>\n\nSelect an application below. Each determined lookup costs <b>{CHECK_COST} credits</b>.",
+                parse_mode=ParseMode.HTML, reply_markup=menu(),
+            )
+        elif text == "PROFILE":
+            await update.message.reply_text(profile_text(update.effective_user.id), parse_mode=ParseMode.HTML, reply_markup=dashboard_keyboard())
+        elif text == "REFER & EARN":
+            username = BOT_USERNAME or (await context.bot.get_me()).username
+            referral_message, link = referral_text(update.effective_user.id, username)
+            await update.message.reply_text(
+                referral_message, parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup([[styled_url_button("SHARE PERSONAL LINK", f"https://t.me/share/url?url={link}", "success", "referral")]]),
+            )
+        elif text == "BUY CREDIT":
+            await update.message.reply_text(
+                f"{premium('◆', 'buy')} <b>ANNEBELLA CREDIT STORE</b>\n\n"
+                "Select a verified credit package. The next step lets you choose UPI or USDT. "
+                "After payment, submit the transaction reference or payment screenshot for manual administrator verification.\n\n"
+                "<b>SECURITY NOTICE</b>\nThe bot will never request your UPI PIN, OTP, wallet seed phrase, card PIN, or account password.",
+                parse_mode=ParseMode.HTML, reply_markup=buy_packages_keyboard(),
+            )
+        elif text == "MINI APP":
+            row = user_summary(update.effective_user.id)
+            if row[5]:
+                link = mini_app_link(update.effective_user.id)
+                markup = InlineKeyboardMarkup([[InlineKeyboardButton("OPEN ANNEBELLA MINI APP", web_app=WebAppInfo(url=link))]]) if link else None
+                message = "Mini App access is active. Use the secure launch button below." if link else "Mini App access is active, but MINI_APP_URL is not configured on the host."
+            else:
+                markup = InlineKeyboardMarkup([[styled_button(f"UNLOCK FOR {MINI_APP_COST} CREDITS", "mini_unlock", "success", "miniapp")]])
+                message = f"Permanent Mini App access requires <b>{MINI_APP_COST} credits</b>. Your current balance is <b>{row[2]}</b>. Unlocking deducts the credits once."
+            await update.message.reply_text(
+                f"{premium('◆', 'miniapp')} <b>ANNEBELLA CHECKER MINI APP</b>\n\n{message}\n\n"
+                "The Mini App provides a mobile web dashboard with account balance, checker directory, referral status, and access information.",
+                parse_mode=ParseMode.HTML, reply_markup=markup,
+            )
+        elif text == "GIFT CARD":
+            context.user_data["flow"] = "gift_card"
+            await update.message.reply_text(
+                f"{premium('◆', 'gift')} <b>REDEEM ANNEBELLA GIFT CARD</b>\n\n"
+                "Send your gift-card code exactly as issued. Every card can be redeemed once and its credit value is added immediately after validation.\n\n"
+                "Example: <code>ANNE-AB12-CD34</code>", parse_mode=ParseMode.HTML,
+            )
+        elif text == "HOW IT WORKS":
+            await update.message.reply_text(
+                f"{premium('◆', 'help')} <b>ADVANCED OPERATING GUIDE</b>\n\n"
+                f"<b>1 — ACCOUNT ACTIVATION</b>\nNew members receive {SIGNUP_CREDITS} complimentary credits after passing force-join verification.\n\n"
+                f"<b>2 — APPLICATION CHECK</b>\nOpen CHECK SERVICES, select an inline application button, and submit an authorized mobile number in international format. A determined result costs {CHECK_COST} credits; provider failures and undetermined responses cost nothing.\n\n"
+                f"<b>3 — CREDIT GROWTH</b>\nInvite genuine users for {REFERRAL_CREDITS} credits each, redeem administrator-issued gift cards, or purchase a verified package.\n\n"
+                f"<b>4 — MINI APP</b>\nMaintain at least {MINI_APP_COST} credits and confirm the one-time unlock to activate the web dashboard permanently.\n\n"
+                "<b>5 — RESPONSIBLE USE</b>\nProcess only numbers you own or are authorized to verify. Never use the bot for harassment, unsolicited profiling, or unauthorized account discovery.",
+                parse_mode=ParseMode.HTML,
+            )
+        elif text == "SUPPORT":
+            context.user_data["flow"] = "support"
+            await update.message.reply_text(
+                f"{premium('◆', 'support')} <b>ANNEBELLA PRIORITY SUPPORT</b>\n\n"
+                "Send one complete message containing the affected checker, approximate time, expected result, and displayed error. "
+                "For payment assistance include only the transaction reference—never send an OTP, PIN, password, or wallet recovery phrase.",
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup([[styled_url_button("CONTACT DEVELOPER", SUPPORT_URL, "danger", "support")]]),
+            )
+        return
+
+    flow = context.user_data.get("flow")
+    if flow == "gift_card":
+        code = text.upper().strip()
+        with closing(db_connect()) as db:
+            card = db.execute("SELECT id, credits, used_by FROM gift_cards WHERE code = ?", (code,)).fetchone()
+            if not card:
+                await update.message.reply_text(f"{premium('◆', 'gift')} <b>GIFT CARD NOT RECOGNIZED</b>\n\nConfirm the code and try again.", parse_mode=ParseMode.HTML)
+                return
+            if card[2] is not None:
+                await update.message.reply_text(f"{premium('◆', 'gift')} <b>GIFT CARD ALREADY REDEEMED</b>\n\nEach card is valid for one account only.", parse_mode=ParseMode.HTML)
+                return
+            now = int(time.time())
+            claimed = db.execute("UPDATE gift_cards SET used_by = ?, used_at = ? WHERE id = ? AND used_by IS NULL", (update.effective_user.id, now, card[0]))
+            if claimed.rowcount != 1:
+                db.rollback()
+                await update.message.reply_text(f"{premium('◆', 'gift')} <b>GIFT CARD ALREADY REDEEMED</b>", parse_mode=ParseMode.HTML)
+                return
+            db.execute("UPDATE users SET credits = credits + ? WHERE telegram_id = ?", (card[1], update.effective_user.id))
+            db.execute("INSERT INTO credit_transactions (telegram_id, amount, kind, note, created_at) VALUES (?, ?, 'gift_card', ?, ?)", (update.effective_user.id, card[1], code, now))
+            db.commit()
+        context.user_data.pop("flow", None)
+        await update.message.reply_text(f"{premium('◆', 'check')} <b>GIFT CARD REDEEMED</b>\n\n<b>{card[1]} credits</b> were added successfully.", parse_mode=ParseMode.HTML, reply_markup=dashboard_keyboard())
+        return
+    if flow == "custom_credit":
+        digits = re.sub(r"\D", "", text)
+        if not digits or int(digits) < 10:
+            await update.message.reply_text("Enter a custom package of at least 10 credits.")
+            return
+        context.user_data["payment"] = {"credits": int(digits), "price": None}
+        context.user_data["flow"] = "payment_method"
+        await send_payment_methods(update.effective_message, context.user_data["payment"])
+        return
+    if flow == "payment_reference":
+        package = context.user_data.get("payment")
+        if not package or len(text) < 4 or len(text) > 120:
+            await update.message.reply_text(
+                f"{premium('◆', 'buy')} <b>INVALID PAYMENT SUBMISSION</b>\n\nSend the transaction reference shown by your payment application, or upload the payment screenshot.",
+                parse_mode=ParseMode.HTML
             )
             return
-        credits, reference = int(match.group(1)), match.group(2).strip()
-        amount = credits
+        credits, reference = package["credits"], f"{package.get('method', 'manual').upper()}: {text.strip()}"
+        amount = package.get("price") or 0
         with closing(db_connect()) as db:
             db.execute(
                 "INSERT INTO payment_requests (telegram_id, credits, amount_inr, reference, created_at) VALUES (?, ?, ?, ?, ?)",
@@ -347,8 +554,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
             db.commit()
         context.user_data.pop("flow", None)
+        context.user_data.pop("payment", None)
         await update.message.reply_text(
-            f"{premium('✅', 'check')} <b>Payment request received</b>\n\n"
+            f"{premium('◆', 'check')} <b>PAYMENT REQUEST RECEIVED</b>\n\n"
             f"Credits requested: <b>{credits}</b>\nReference: <code>{reference}</code>\n\n"
             "An administrator will verify the payment. Credits are added only after approval.",
             parse_mode=ParseMode.HTML, reply_markup=menu(),
@@ -369,13 +577,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             try:
                 await context.bot.send_message(
                     int(admin_id),
-                    f"🛟 <b>New support ticket</b>\n\nUser: <code>{update.effective_user.id}</code>\nMessage:\n{text[:1500]}",
+                    f"{premium('◆', 'support')} <b>NEW SUPPORT TICKET</b>\n\nUser: <code>{update.effective_user.id}</code>\nMessage:\n{text[:1500]}",
                     parse_mode=ParseMode.HTML,
                 )
             except Exception:
                 logger.info("Could not deliver support alert to admin %s", admin_id)
         await update.message.reply_text(
-            f"{premium('✅', 'check')} <b>Support request submitted</b>\n\n"
+            f"{premium('◆', 'check')} <b>SUPPORT REQUEST SUBMITTED</b>\n\n"
             "Your ticket has been recorded for administrator review. For urgent assistance, use the Support button.",
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup([[styled_url_button("Open Developer Support", SUPPORT_URL, "danger", "support")], [styled_button("Back to Menu", "main_menu", "primary", "back")]]),
@@ -390,7 +598,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     normalized = re.sub(r"[\s()-]", "", text)
     if not PHONE_RE.fullmatch(normalized):
         await update.message.reply_text(
-            "❌ Invalid mobile number. Send 8–15 digits, optionally starting with +."
+            f"{premium('◆', 'support')} <b>INVALID MOBILE NUMBER</b>\n\nSend 8–15 digits, optionally starting with +.", parse_mode=ParseMode.HTML
         )
         return
 
@@ -405,7 +613,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         credits = db.execute("SELECT credits FROM users WHERE telegram_id = ?", (update.effective_user.id,)).fetchone()[0]
     if credits < CHECK_COST:
         await update.message.reply_text(
-            f"💎 <b>Insufficient credits</b>\n\nThis lookup requires {CHECK_COST} credit. "
+            f"{premium('◆', 'credits')} <b>INSUFFICIENT CREDITS</b>\n\nThis lookup requires {CHECK_COST} credits. "
             "Purchase credits or invite friends to continue.",
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup([[styled_button("Buy Credits", "buy", "success", "buy"), styled_button("Refer & Earn", "referral", "primary", "referral")]]),
@@ -434,7 +642,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         }
         line_type = type_names.get(phonenumbers.number_type(parsed), "Unknown")
     except phonenumbers.NumberParseException:
-        await update.message.reply_text("❌ Could not parse that mobile number.")
+        await update.message.reply_text(f"{premium('◆', 'support')} <b>NUMBER PARSING FAILED</b>", parse_mode=ParseMode.HTML)
         return
 
     checker_result, checker_error = await registration_lookup(service, e164)
@@ -454,25 +662,67 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         db.commit()
 
     if checker_error:
-        status_line = f"⚠️ <b>Status:</b> {checker_error}"
+        status_line = f"{premium('◆', 'support')} <b>Status:</b> {checker_error}"
     elif checker_result is True:
-        status_line = "✅ <b>Registered</b>"
+        status_line = f"{premium('◆', 'check')} <b>REGISTERED</b>"
     else:
-        status_line = "❌ <b>Not Registered</b>"
+        status_line = f"{premium('◆', 'support')} <b>NOT REGISTERED</b>"
     details = [
-        f"{premium('🔎')} <b>{service}</b>\n"
+        f"{premium('◆', 'search')} <b>{service.upper()} CHECKER</b>\n"
         f"Number: <code>••••••{suffix}</code>\n\n"
         f"{status_line}\n"
-        f"💎 <b>Lookup charge:</b> {CHECK_COST if checker_error is None else 0} credit\n\n"
-        f"🌍 <b>Region:</b> {region}\n"
-        f"📡 <b>Number type:</b> {line_type}\n"
-        f"🏢 <b>Original carrier:</b> {original_carrier}\n"
-        f"🕒 <b>Timezone:</b> {zones}"
+        f"{premium('◆', 'credits')} <b>Lookup charge:</b> {CHECK_COST if checker_error is None else 0} credits\n\n"
+        f"<b>Region:</b> {region}\n<b>Number type:</b> {line_type}\n<b>Original carrier:</b> {original_carrier}\n<b>Timezone:</b> {zones}"
     ]
     await update.message.reply_text(
         "".join(details),
         parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup([[styled_button("🔄 Check Another", f"service:{service}", "success")]]),
+        reply_markup=InlineKeyboardMarkup([[styled_button("CHECK ANOTHER NUMBER", f"service:{service}", "success", "check")]]),
+    )
+
+
+async def handle_payment_proof(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await gate(update, context):
+        return
+    remember_user(update)
+    if context.user_data.get("flow") != "payment_reference" or not context.user_data.get("payment"):
+        await update.effective_message.reply_text(
+            "Open BUY CREDIT from the dashboard and select a package before submitting payment proof.",
+            reply_markup=dashboard_keyboard(),
+        )
+        return
+    package = context.user_data["payment"]
+    if update.message.photo:
+        file_id = update.message.photo[-1].file_id
+        proof_type = "PHOTO"
+    else:
+        file_id = update.message.document.file_id
+        proof_type = "DOCUMENT"
+    reference = f"{package.get('method', 'manual').upper()} {proof_type}: {file_id}"
+    with closing(db_connect()) as db:
+        cursor = db.execute(
+            "INSERT INTO payment_requests (telegram_id, credits, amount_inr, reference, created_at) VALUES (?, ?, ?, ?, ?)",
+            (update.effective_user.id, package["credits"], package.get("price") or 0, reference, int(time.time())),
+        )
+        request_id = cursor.lastrowid
+        db.commit()
+    for admin_id in {value.strip() for value in os.getenv("ADMIN_IDS", "").split(",") if value.strip().isdigit()}:
+        try:
+            await context.bot.forward_message(int(admin_id), update.effective_chat.id, update.message.message_id)
+            await context.bot.send_message(
+                int(admin_id),
+                f"{premium('◆', 'buy')} <b>PAYMENT PROOF #{request_id}</b>\n\n"
+                f"User: <code>{update.effective_user.id}</code>\nPackage: <b>{package['credits']} credits</b>\n"
+                f"Method: <b>{package.get('method', 'manual').upper()}</b>\nReview it in the web admin panel.",
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception:
+            logger.info("Could not forward payment proof to admin %s", admin_id)
+    context.user_data.pop("flow", None)
+    context.user_data.pop("payment", None)
+    await update.message.reply_text(
+        f"{premium('◆', 'check')} <b>PAYMENT PROOF RECEIVED</b>\n\nRequest <b>#{request_id}</b> is awaiting administrator verification. Credits are added only after approval.",
+        parse_mode=ParseMode.HTML, reply_markup=dashboard_keyboard(),
     )
 
 
@@ -514,84 +764,150 @@ async def registration_lookup(service: str, number: str):
 async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
-    remember_user(update)
     if query.data == "verify_join":
         if not await membership_ok(update.effective_user.id, context):
             await query.answer("Join all required channels first.", show_alert=True)
             return
+        is_new = remember_user(update, context.user_data.pop("pending_referrer", None))
         await query.edit_message_text(
-            f"{premium('✅')} <b>Verified!</b>\n\nChoose a checker:",
+            f"{premium('◆', 'check')} <b>MEMBERSHIP VERIFIED</b>\n\nSelect an application checker below.",
             parse_mode=ParseMode.HTML,
             reply_markup=menu(),
         )
+        if is_new:
+            await query.message.reply_text(
+                f"{premium('◆', 'gift')} <b>WELCOME CREDITS ACTIVATED</b>\n\n{SIGNUP_CREDITS} credits were added to your account. The persistent account dashboard is now available below.",
+                parse_mode=ParseMode.HTML, reply_markup=dashboard_keyboard(),
+            )
         return
     if not await gate(update, context):
         return
+    remember_user(update)
+    if query.data in {"buy_100", "buy_500", "buy_1000", "buy_5000", "buy_custom"}:
+        packages = {
+            "buy_100": {"credits": 100, "price": 49},
+            "buy_500": {"credits": 500, "price": 199},
+            "buy_1000": {"credits": 1000, "price": 349},
+            "buy_5000": {"credits": 5000, "price": 999},
+        }
+        if query.data == "buy_custom":
+            context.user_data["flow"] = "custom_credit"
+            await query.edit_message_text(
+                f"{premium('◆', 'credits')} <b>CUSTOM CREDIT PACKAGE</b>\n\nSend the number of credits required. Minimum custom quantity: <b>10 credits</b>.",
+                parse_mode=ParseMode.HTML,
+            )
+        else:
+            context.user_data["payment"] = packages[query.data]
+            context.user_data["flow"] = "payment_method"
+            await query.edit_message_text(
+                f"{premium('◆', 'buy')} <b>SELECT PAYMENT METHOD</b>\n\n"
+                f"<b>PACKAGE</b>\n{packages[query.data]['credits']} credits\n\n"
+                f"<b>PAYABLE AMOUNT</b>\n₹{packages[query.data]['price']}",
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup([[
+                    styled_button("UPI PAYMENT", "paymethod_upi", "success", "upi"),
+                    styled_button("USDT PAYMENT", "paymethod_usdt", "primary", "usdt"),
+                ]]),
+            )
+        return
+    if query.data in {"paymethod_upi", "paymethod_usdt"}:
+        package = context.user_data.get("payment")
+        if not package:
+            await query.answer("Payment session expired", show_alert=True)
+            return
+        method = "upi" if query.data == "paymethod_upi" else "usdt"
+        package["method"] = method
+        context.user_data["flow"] = "payment_reference"
+        if method == "upi":
+            destination = os.getenv("PAYMENT_UPI_ID", "gauravpayout@fam").strip()
+            instructions = f"<b>UPI ID</b>\n<code>{destination}</code>"
+        else:
+            instructions = (
+                f"<b>BINANCE ID</b>\n<code>{os.getenv('USDT_BINANCE_ID', '1114491025')}</code>\n\n"
+                f"<b>BEP20 ADDRESS</b>\n<code>{os.getenv('USDT_BEP20_ADDRESS', '0x430b7abc929366ba7c4e3ca26b6c4177590c0c4f')}</code>\n\n"
+                f"<b>TRC20 ADDRESS</b>\n<code>{os.getenv('USDT_TRC20_ADDRESS', 'TDfzW7sn7Hut3uQr6Gnk6TyVN2aG6UoUEn')}</code>\n\n"
+                f"<b>ERC20 ADDRESS</b>\n<code>{os.getenv('USDT_ERC20_ADDRESS', '0x430b7abc929366ba7c4e3ca26b6c4177590c0c4f')}</code>"
+            )
+        await query.edit_message_text(
+            f"{premium('◆', method)} <b>{method.upper()} PAYMENT INSTRUCTIONS</b>\n\n"
+            f"<b>PACKAGE</b>\n{package['credits']} credits\n\n"
+            f"<b>AMOUNT</b>\n{'₹' + str(package['price']) if package.get('price') is not None else 'Custom/manual'}\n\n"
+            f"{instructions}\n\nComplete payment and send the transaction reference or payment screenshot in this chat. Credits remain pending until administrator approval.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+    if query.data == "mini_unlock":
+        with closing(db_connect()) as db:
+            row = db.execute("SELECT credits, mini_app_unlocked FROM users WHERE telegram_id = ?", (update.effective_user.id,)).fetchone()
+            if row[1]:
+                unlocked = True
+            elif row[0] < MINI_APP_COST:
+                await query.answer(f"Need {MINI_APP_COST - row[0]} more credits", show_alert=True)
+                return
+            else:
+                now = int(time.time())
+                activated = db.execute(
+                    "UPDATE users SET credits = credits - ?, mini_app_unlocked = 1 WHERE telegram_id = ? AND mini_app_unlocked = 0 AND credits >= ?",
+                    (MINI_APP_COST, update.effective_user.id, MINI_APP_COST),
+                )
+                if activated.rowcount != 1:
+                    db.rollback()
+                    await query.answer("Account balance changed; please try again", show_alert=True)
+                    return
+                db.execute("INSERT INTO credit_transactions (telegram_id, amount, kind, note, created_at) VALUES (?, ?, 'mini_app', 'Permanent Mini App unlock', ?)", (update.effective_user.id, -MINI_APP_COST, now))
+                db.commit()
+                unlocked = True
+        link = mini_app_link(update.effective_user.id)
+        markup = InlineKeyboardMarkup([[InlineKeyboardButton("OPEN ANNEBELLA MINI APP", web_app=WebAppInfo(url=link))]]) if link else None
+        await query.edit_message_text(
+            f"{premium('◆', 'miniapp')} <b>MINI APP ACCESS ACTIVATED</b>\n\n"
+            "Permanent access is now linked to your Telegram account. " + ("Use the secure launch button below." if link else "Configure MINI_APP_URL on the host to display the launch button."),
+            parse_mode=ParseMode.HTML, reply_markup=markup,
+        )
+        return
     if query.data == "help":
         await query.edit_message_text(
-            f"{premium('📖')} <b>How Annebella Checker Works</b>\n\n"
+            f"{premium('◆', 'help')} <b>HOW ANNEBELLA CHECKER WORKS</b>\n\n"
             "<b>1.</b> Select the required service from the checker directory.\n"
             "<b>2.</b> Submit a mobile number in international format, for example <code>+919876543210</code>.\n"
             "<b>3.</b> The bot validates the number and requests an authorized provider lookup.\n"
             "<b>4.</b> A successful determined lookup costs the displayed credit amount. Failed or undetermined provider responses are not charged.\n\n"
             "Use this service only for numbers you are authorized to process.",
             parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup([[styled_button("⬅️ Main Menu", "main_menu")]]),
+            reply_markup=InlineKeyboardMarkup([[styled_button("CHECKER DIRECTORY", "main_menu", "primary", "search")]]),
         )
     elif query.data == "main_menu":
         context.user_data.pop("service", None)
         context.user_data.pop("flow", None)
-        await query.edit_message_text("✨ <b>Annebella Checker Directory</b>\n\nSelect a service or manage your account below.", parse_mode=ParseMode.HTML, reply_markup=menu())
+        await query.edit_message_text(f"{premium('◆', 'search')} <b>ANNEBELLA CHECKER DIRECTORY</b>\n\nSelect an application below.", parse_mode=ParseMode.HTML, reply_markup=menu())
     elif query.data == "profile":
-        row = user_summary(update.effective_user.id)
-        name, username, credits, referrals, first_seen = row
         await query.edit_message_text(
-            f"{premium('👤', 'profile')} <b>Account Overview</b>\n\n"
-            f"<b>Name:</b> {name or 'Telegram User'}\n"
-            f"<b>Username:</b> {'@' + username if username else 'Not set'}\n"
-            f"<b>Telegram ID:</b> <code>{update.effective_user.id}</code>\n"
-            f"<b>Available credits:</b> {credits}\n"
-            f"<b>Successful referrals:</b> {referrals}\n"
-            f"<b>Member since:</b> {time.strftime('%d %b %Y', time.localtime(first_seen))}\n\n"
-            "Credits are charged only for determined provider responses.",
+            profile_text(update.effective_user.id),
             parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup([[styled_button("Buy Credits", "buy", "success", "buy"), styled_button("Back", "main_menu", "danger", "back")]]),
+            reply_markup=InlineKeyboardMarkup([[styled_button("BUY CREDIT", "buy", "success", "buy"), styled_button("CHECKERS", "main_menu", "primary", "search")]]),
         )
     elif query.data == "referral":
         username = BOT_USERNAME or (await context.bot.get_me()).username
-        link = f"https://t.me/{username}?start=ref_{update.effective_user.id}"
-        row = user_summary(update.effective_user.id)
+        message, link = referral_text(update.effective_user.id, username)
         await query.edit_message_text(
-            f"{premium('👥', 'referral')} <b>Refer & Earn</b>\n\n"
-            f"Invite a genuine new user and receive <b>{REFERRAL_CREDITS} credits</b> after they start the bot through your personal link. "
-            "Self-referrals and previously registered accounts do not qualify.\n\n"
-            f"<b>Your referrals:</b> {row[3]}\n"
-            f"<b>Your reward link:</b>\n<code>{link}</code>",
+            message,
             parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup([[styled_url_button("Share Referral Link", f"https://t.me/share/url?url={link}", "success", "referral")], [styled_button("Back", "main_menu", "danger", "back")]]),
+            reply_markup=InlineKeyboardMarkup([[styled_url_button("SHARE PERSONAL LINK", f"https://t.me/share/url?url={link}", "success", "referral")]]),
         )
     elif query.data == "buy":
-        context.user_data["flow"] = "payment_reference"
-        context.user_data.pop("service", None)
-        upi_id = os.getenv("PAYMENT_UPI_ID", "Contact support").strip()
         await query.edit_message_text(
-            f"{premium('💎', 'buy')} <b>Purchase Checker Credits</b>\n\n"
-            "<b>Standard rate:</b> ₹1 per credit\n"
-            f"<b>UPI ID:</b> <code>{upi_id}</code>\n\n"
-            "After payment, send the requested credit quantity followed by the transaction reference.\n"
-            "Example: <code>100 UPI123456789</code>\n\n"
-            "Payment requests remain pending until manually verified by an administrator. Never send a UPI PIN, OTP, password, or card details.",
+            f"{premium('◆', 'buy')} <b>ANNEBELLA CREDIT STORE</b>\n\nSelect a credit package to continue with UPI or USDT payment.",
             parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup([[styled_button("Cancel", "main_menu", "danger", "back")]]),
+            reply_markup=buy_packages_keyboard(),
         )
     elif query.data == "support":
         context.user_data["flow"] = "support"
         context.user_data.pop("service", None)
         await query.edit_message_text(
-            f"{premium('🛟', 'support')} <b>Customer Support</b>\n\n"
-            "Describe your issue in one detailed message. Include the checker name, approximate time, and error shown—never include OTPs, passwords, or payment PINs.",
+            f"{premium('◆', 'support')} <b>ANNEBELLA PRIORITY SUPPORT</b>\n\n"
+            "Describe the issue in one detailed message. Include the checker, approximate time, and displayed error. Never include private authentication information.",
             parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup([[styled_url_button("Developer Support", SUPPORT_URL, "danger", "support")], [styled_button("Cancel", "main_menu", "danger", "back")]]),
+            reply_markup=InlineKeyboardMarkup([[styled_url_button("CONTACT DEVELOPER", SUPPORT_URL, "danger", "support")]]),
         )
     elif query.data.startswith("service:"):
         service = query.data.split(":", 1)[1]
@@ -599,9 +915,9 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         context.user_data["service"] = service
         await query.edit_message_text(
-            f"{premium('📱')} <b>{service} Checker</b>\n\nSend mobile number with country code:",
+            f"{premium('◆', 'search')} <b>{service.upper()} CHECKER</b>\n\nSend the authorized mobile number with country code. Example: <code>+919876543210</code>",
             parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup([[styled_button("⬅️ Back", "main_menu", "danger")]]),
+            reply_markup=InlineKeyboardMarkup([[styled_button("BACK TO CHECKERS", "main_menu", "danger", "back")]]),
         )
 
 
@@ -617,6 +933,32 @@ def admin_required(view):
 @web.route("/healthz")
 def healthz():
     return {"ok": True, "service": BOT_NAME}
+
+
+@web.route("/miniapp")
+def miniapp():
+    token = request.args.get("token", "")
+    try:
+        payload = URLSafeTimedSerializer(web.secret_key).loads(token, salt="mini-app", max_age=86400 * 30)
+        user_id = int(payload["user_id"])
+    except (BadSignature, SignatureExpired, KeyError, TypeError, ValueError):
+        return render_template("miniapp.html", bot_name=BOT_NAME, error="This secure Mini App link is invalid or expired."), 403
+    with closing(db_connect()) as db:
+        user = db.execute(
+            "SELECT first_name, username, credits, referral_count, mini_app_unlocked FROM users WHERE telegram_id = ?",
+            (user_id,),
+        ).fetchone()
+        searches = db.execute("SELECT COUNT(*) FROM searches WHERE telegram_id = ?", (user_id,)).fetchone()[0]
+        recent = db.execute(
+            "SELECT service, phone_suffix, searched_at FROM searches WHERE telegram_id = ? ORDER BY id DESC LIMIT 10",
+            (user_id,),
+        ).fetchall()
+    if not user or not user[4]:
+        return render_template("miniapp.html", bot_name=BOT_NAME, error="Mini App access is not active for this account."), 403
+    return render_template(
+        "miniapp.html", bot_name=BOT_NAME, error=None, user_id=user_id, user=user,
+        searches=searches, recent=recent, services=SERVICES,
+    )
 
 
 @web.route("/admin/login", methods=["GET", "POST"])
@@ -649,7 +991,8 @@ def admin_panel():
         pending_count = db.execute("SELECT COUNT(*) FROM payment_requests WHERE status = 'pending'").fetchone()[0]
         payments = db.execute("SELECT id, telegram_id, credits, amount_inr, reference, status, created_at FROM payment_requests ORDER BY id DESC LIMIT 50").fetchall()
         tickets = db.execute("SELECT id, telegram_id, message, status, created_at FROM support_tickets ORDER BY id DESC LIMIT 50").fetchall()
-    return render_template("admin.html", bot_name=BOT_NAME, users=users, channels=channels, user_count=user_count, search_count=search_count, total_credits=total_credits, pending_count=pending_count, payments=payments, tickets=tickets)
+        gift_cards = db.execute("SELECT id, code, credits, used_by, used_at, created_at FROM gift_cards ORDER BY id DESC LIMIT 100").fetchall()
+    return render_template("admin.html", bot_name=BOT_NAME, users=users, channels=channels, user_count=user_count, search_count=search_count, total_credits=total_credits, pending_count=pending_count, payments=payments, tickets=tickets, gift_cards=gift_cards)
 
 
 @web.post("/admin/channels")
@@ -703,7 +1046,7 @@ def adjust_credits(user_id):
             )
             db.commit()
         flash(f"Credit balance adjusted by {amount:+d}")
-        notify_user(user_id, f"💎 <b>Credit balance updated</b>\n\nAdministrator adjustment: <b>{amount:+d} credits</b>. Open your profile to view the latest balance.")
+        notify_user(user_id, f"{premium('◆', 'credits')} <b>CREDIT BALANCE UPDATED</b>\n\nAdministrator adjustment: <b>{amount:+d} credits</b>. Open your profile to view the latest balance.")
     return redirect(url_for("admin_panel"))
 
 
@@ -728,9 +1071,9 @@ def review_payment(payment_id, action):
             db.commit()
             flash(f"Payment #{payment_id} {status}")
             if action == "approve":
-                notify_user(payment[0], f"✅ <b>Payment approved</b>\n\n<b>{payment[1]} credits</b> were added to your Annebella Checker account.")
+                notify_user(payment[0], f"{premium('◆', 'check')} <b>PAYMENT APPROVED</b>\n\n<b>{payment[1]} credits</b> were added to your Annebella Checker account.")
             else:
-                notify_user(payment[0], f"❌ <b>Payment not approved</b>\n\nRequest #{payment_id} could not be verified. Please contact support with the correct transaction reference.")
+                notify_user(payment[0], f"{premium('◆', 'support')} <b>PAYMENT NOT APPROVED</b>\n\nRequest #{payment_id} could not be verified. Please contact support with the correct transaction reference.")
     return redirect(url_for("admin_panel"))
 
 
@@ -741,6 +1084,30 @@ def close_ticket(ticket_id):
         db.execute("UPDATE support_tickets SET status = 'closed' WHERE id = ?", (ticket_id,))
         db.commit()
     flash(f"Support ticket #{ticket_id} closed")
+    return redirect(url_for("admin_panel"))
+
+
+@web.post("/admin/gift-cards")
+@admin_required
+def create_gift_card():
+    try:
+        credits = int(request.form.get("credits", "0"))
+    except ValueError:
+        credits = 0
+    requested = request.form.get("code", "").upper().strip()
+    code = requested or "ANNE-" + "-".join(
+        "".join(secrets.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(4)) for _ in range(2)
+    )
+    if credits <= 0 or not re.fullmatch(r"[A-Z0-9-]{6,40}", code):
+        flash("Enter a positive credit value and a valid gift-card code")
+        return redirect(url_for("admin_panel"))
+    try:
+        with closing(db_connect()) as db:
+            db.execute("INSERT INTO gift_cards (code, credits, created_at) VALUES (?, ?, ?)", (code, credits, int(time.time())))
+            db.commit()
+        flash(f"Gift card created: {code} ({credits} credits)")
+    except sqlite3.IntegrityError:
+        flash("That gift-card code already exists")
     return redirect(url_for("admin_panel"))
 
 
@@ -772,6 +1139,7 @@ def main() -> None:
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("admin", admin))
     application.add_handler(CallbackQueryHandler(callbacks))
+    application.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, handle_payment_proof))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     threading.Thread(target=run_web, daemon=True).start()
     logger.info("Starting %s", BOT_NAME)

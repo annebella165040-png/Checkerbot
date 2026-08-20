@@ -15,14 +15,28 @@ services:
         sync: false
       - key: PAYMENT_UPI_ID
         sync: false
+      - key: USDT_BINANCE_ID
+        sync: false
+      - key: USDT_BEP20_ADDRESS
+        sync: false
+      - key: USDT_TRC20_ADDRESS
+        sync: false
+      - key: USDT_ERC20_ADDRESS
+        sync: false
       - key: SUPPORT_URL
         value: https://t.me/annebella
       - key: SIGNUP_CREDITS
-        value: 10
+        value: 150
       - key: REFERRAL_CREDITS
-        value: 5
+        value: 20
       - key: CHECK_COST
-        value: 1
+        value: 5
+      - key: MINI_APP_COST
+        value: 1000
+      - key: PUBLIC_APP_URL
+        sync: false
+      - key: MINI_APP_URL
+        sync: false
       - key: ADMIN_IDS
         sync: false
       - key: ADMIN_PASSWORD

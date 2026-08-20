@@ -4,7 +4,8 @@ A Telegram registration checker inspired by the supplied reference. Users select
 
 ## Features
 
-- Branded `/start` flow with an 18-service reply keyboard
+- Branded `/start` flow with an inline-only 18-service checker directory
+- Persistent premium-ID dashboard keyboard for Profile, Credits, Mini App, Gift Card, Referrals, Guide and Support
 - International mobile-number validation
 - Per-user rate limiting
 - SQLite user and search statistics
@@ -15,11 +16,14 @@ A Telegram registration checker inspired by the supplied reference. Users select
 - Optional premium custom emoji for messages and buttons
 - Google libphonenumber-based country, type, carrier, and timezone intelligence
 - SuperAssets registration-check API integration for all displayed services
-- One-time welcome credits and per-determined-lookup charging
-- Deep-link Refer & Earn rewards with self-referral and duplicate-account protection
-- Credit purchase submissions with manual administrator approval/rejection
+- 150 one-time welcome credits and 5-credit determined lookups
+- 20-credit deep-link referral rewards with self-referral and duplicate-account protection
+- TempSms-style UPI/USDT credit packages, screenshot/reference submissions, and administrator approval
+- 1000-credit permanent Mini App unlock with signed launch links
+- Responsive Mini App for balance, referral, service-directory and recent-activity views
+- One-time gift-card generation, administration and redemption
 - Professional in-bot profile, support-ticket and payment guidance flows
-- Premium custom emoji IDs and blue/green/red inline-button styles with normal emoji fallback
+- Premium custom emoji IDs and blue/green/red button styles
 - No hard-coded secrets
 - Render worker configuration
 
@@ -47,7 +51,7 @@ Create a Blueprint from this repository. Set `BOT_TOKEN`, `CHECKER_API_KEY`, `AD
 
 Open `/admin/login` on the deployed domain to manage required channels and ban/unban users. The bot must be an administrator in every force-join channel so Telegram allows membership checks.
 
-Telegram's current Bot API supports `style` and `icon_custom_emoji_id` on buttons. Set `PREMIUM_EMOJI_ID` to enable a custom emoji. Telegram limits custom emoji usage to eligible bots/owners; the normal emoji fallback remains visible otherwise.
+Telegram's current Bot API supports `style` and `icon_custom_emoji_id` on buttons. The dashboard uses dedicated premium IDs from the TempSmsBot design; `PREMIUM_EMOJI_ID` can override message-level branding. Telegram limits custom emoji usage to eligible bots/owners.
 
 ## Checker API
 
@@ -55,9 +59,9 @@ Telegram's current Bot API supports `style` and `icon_custom_emoji_id` on button
 
 ## Credits, referrals and payments
 
-New users receive `SIGNUP_CREDITS`. A determined provider lookup costs `CHECK_COST`; unavailable or undetermined responses are not charged. A referrer receives `REFERRAL_CREDITS` only when a genuinely new Telegram account starts through `https://t.me/<BOT_USERNAME>?start=ref_<telegram_id>`.
+New users receive 150 credits. A determined provider lookup costs 5 credits; unavailable or undetermined responses are not charged. A referrer receives 20 credits only when a genuinely new Telegram account starts through `https://t.me/<BOT_USERNAME>?start=ref_<telegram_id>`.
 
-The Buy Credits flow records the requested credits and payment reference. An administrator must independently verify the transaction in `/admin` before approving it. The bot never asks users for an OTP, UPI PIN, password, or card details.
+The Buy Credits flow supports 100/500/1000/5000 packages, custom quantities, UPI and USDT destinations, transaction references, and screenshot/document proof. An administrator must independently verify the transaction in `/admin` before approving it. The bot never asks users for an OTP, UPI PIN, password, wallet seed phrase, or card details.
 
 ## Advanced administrator panel
 
