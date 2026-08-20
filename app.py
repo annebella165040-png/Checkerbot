@@ -16,7 +16,7 @@ import phonenumbers
 from phonenumbers import carrier, geocoder, timezone
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, Update, WebAppInfo
-from telegram.constants import ChatMemberStatus, ParseMode
+from telegram.constants import ChatMemberStatus, ChatType, ParseMode
 from telegram.error import BadRequest
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, ExtBot, MessageHandler, filters
 
@@ -533,6 +533,20 @@ def verified_text() -> str:
     )
 
 
+async def pin_private_welcome(message, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Pin the welcome card in a private chat without blocking the start flow."""
+    if not message or not message.chat or message.chat.type != ChatType.PRIVATE:
+        return
+    try:
+        await context.bot.pin_chat_message(
+            chat_id=message.chat_id,
+            message_id=message.message_id,
+            disable_notification=True,
+        )
+    except Exception as exc:
+        logger.warning("Could not pin private welcome for chat %s: %s", message.chat_id, type(exc).__name__)
+
+
 def buy_packages_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [styled_button("100 CREDITS", "buy_100", "success", "credits"), styled_button("500 CREDITS", "buy_500", "primary", "credits")],
@@ -596,11 +610,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             logger.info("Could not deliver referral notification to %s", referred_by)
     context.user_data.pop("service", None)
     credits = user_summary(update.effective_user.id)[2]
-    await update.message.reply_text(
+    welcome_message = await update.message.reply_text(
         welcome_text(update.effective_user.first_name, credits),
         parse_mode=ParseMode.HTML,
         reply_markup=dashboard_keyboard(),
     )
+    await pin_private_welcome(welcome_message, context)
     await update.message.reply_text(
         verified_text(),
         parse_mode=ParseMode.HTML,
@@ -1033,7 +1048,8 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         remember_user(update, context.user_data.pop("pending_referrer", None))
         credits = user_summary(update.effective_user.id)[2]
-        await query.edit_message_text(welcome_text(update.effective_user.first_name, credits), parse_mode=ParseMode.HTML)
+        welcome_message = await query.edit_message_text(welcome_text(update.effective_user.first_name, credits), parse_mode=ParseMode.HTML)
+        await pin_private_welcome(welcome_message, context)
         await query.message.reply_text(verified_text(), parse_mode=ParseMode.HTML, reply_markup=dashboard_keyboard())
         await query.message.reply_text(f"{premium('◆', 'lightning')} <b>BOT READY! USE THE DASHBOARD BUTTONS BELOW.</b>", parse_mode=ParseMode.HTML)
         return
