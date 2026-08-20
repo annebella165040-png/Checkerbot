@@ -26,6 +26,9 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
+# Telegram's HTTP client includes the bot token in request URLs. Keep those
+# transport logs below INFO so credentials never land in ordinary host logs.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def db_connect():
