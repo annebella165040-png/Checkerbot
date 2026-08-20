@@ -534,6 +534,8 @@ async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user is None or update.message is None:
+        return
     if not await gate(update, context):
         return
     remember_user(update)
@@ -798,6 +800,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def handle_payment_proof(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user is None or update.effective_message is None:
+        return
     if not await gate(update, context):
         return
     remember_user(update)
