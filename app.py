@@ -33,7 +33,7 @@ SERVICE_IDS = {
     "HabitYoga": "habuildyoga",
 }
 PHONE_RE = re.compile(r"^\+?[1-9]\d{7,14}$")
-RATE_LIMIT_SECONDS = 3
+RATE_LIMIT_SECONDS = 5
 DB_PATH = os.getenv("DATABASE_PATH", "checkerbot.db")
 WEB_PORT = int(os.getenv("PORT", "8080"))
 PREMIUM_EMOJI_ID = os.getenv("PREMIUM_EMOJI_ID", "").strip()
@@ -870,7 +870,7 @@ async def registration_lookup(service: str, number: str):
         return None, "Checker service temporarily unavailable"
 
     data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
-    registered = data.get("registered")
+    registered = data.get("is_registered", data.get("registered"))
     if isinstance(registered, bool):
         return registered, None
     if isinstance(registered, str) and registered.lower() in {"true", "false"}:
