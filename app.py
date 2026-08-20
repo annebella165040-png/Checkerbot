@@ -72,6 +72,8 @@ EMOJI_IDS = {
     "refresh": "5339233635620899144",
     "star": "6204162490515855272",
     "wave": "5247133031235329609",
+    "warn": "6206174450765796040",
+    "trophy": "6203750195130274981",
 }
 EMOJI_FALLBACKS = {
     "sparkle": "✨", "profile": "👤", "search": "🔎", "credits": "💎",
@@ -81,6 +83,7 @@ EMOJI_FALLBACKS = {
     "payment": "💳", "name": "📛", "link": "🔗", "id": "🆔",
     "joined": "📅", "lightning": "⚡", "phone": "📱", "money": "💰",
     "history": "📋", "refresh": "🔄", "star": "⭐", "wave": "〰️",
+    "warn": "⚠️", "trophy": "🏆",
 }
 
 SC_MAP = {
@@ -249,7 +252,7 @@ def premium(emoji: str, name: str = "sparkle") -> str:
 
 
 def divider() -> str:
-    return premium("〰️", "wave") * 10
+    return "〰️" * 10
 
 
 def styled_button(text: str, data: str, style: str = "primary", emoji: str = "") -> InlineKeyboardButton:
@@ -299,7 +302,9 @@ def dashboard_keyboard() -> ReplyKeyboardMarkup:
 
 
 def menu() -> InlineKeyboardMarkup:
-    buttons = [styled_button(name, f"service:{name}", "primary", "search") for name in SERVICES]
+    styles = (["primary", "success", "danger"] * ((len(SERVICES) + 2) // 3))[:len(SERVICES)]
+    secrets.SystemRandom().shuffle(styles)
+    buttons = [styled_button(name, f"service:{name}", styles[index], "search") for index, name in enumerate(SERVICES)]
     rows = [buttons[index:index + 3] for index in range(0, len(buttons), 3)]
     return InlineKeyboardMarkup(rows)
 
@@ -437,12 +442,15 @@ def referral_text(user_id: int, bot_username: str) -> tuple[str, str]:
     row = user_summary(user_id)
     link = f"https://t.me/{bot_username}?start=ref_{user_id}"
     text = (
-        f"{premium('◆', 'referral')} <b>ANNEBELLA REFER & EARN</b>\n\n"
-        f"Earn <b>{REFERRAL_CREDITS} credits</b> whenever a genuine new member starts the bot through your personal link.\n\n"
-        f"<b>SUCCESSFUL REFERRALS</b>\n{row[3]}\n\n"
-        f"<b>TOTAL REFERRAL EARNINGS</b>\n{row[3] * REFERRAL_CREDITS} credits\n\n"
-        f"<b>PERSONAL INVITATION LINK</b>\n<code>{link}</code>\n\n"
-        "Self-referrals, duplicate accounts, and users who previously started the bot do not qualify. Rewards are credited automatically."
+        f"{premium('◆', 'referral')} <b>ANNEBELLA REFER & EARN</b>\n{divider()}\n\n"
+        f"{premium('◆', 'credits')} <b>REWARD PER REFERRAL</b> : {REFERRAL_CREDITS} CREDITS\n\n"
+        f"{premium('◆', 'trophy')} <b>SUCCESSFUL REFERRALS</b> : {row[3]}\n"
+        f"{premium('◆', 'money')} <b>TOTAL EARNINGS</b> : {row[3] * REFERRAL_CREDITS} CREDITS\n"
+        f"{divider()}\n\n"
+        f"{premium('◆', 'link')} <b>YOUR PERSONAL INVITATION LINK</b>\n<code>{link}</code>\n\n"
+        f"{premium('◆', 'history')} Share the link with genuine new users. Their membership must be verified before your reward is released.\n"
+        f"{divider()}\n\n"
+        f"{premium('◆', 'warn')} <b>FAIR-USE POLICY</b>\nSelf-referrals, duplicate accounts and members who previously started the bot do not qualify. Eligible rewards are credited automatically."
     )
     return text, link
 
