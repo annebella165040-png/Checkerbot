@@ -9,6 +9,10 @@ A privacy-conscious Telegram checker interface inspired by the supplied referenc
 - Per-user rate limiting
 - SQLite user and search statistics
 - Restricted `/admin` dashboard
+- Password-protected web admin panel at `/admin`
+- Force-join channel management and membership verification
+- Modern inline checker menu with Bot API button styles
+- Optional premium custom emoji for messages and buttons
 - No hard-coded secrets
 - Render worker configuration
 
@@ -32,4 +36,8 @@ python app.py
 
 ## Deploy on Render
 
-Create a Blueprint from this repository or create a Background Worker manually. Set `BOT_TOKEN` and `ADMIN_IDS` in Render's environment settings. For durable statistics, attach persistent storage and set `DATABASE_PATH` to a path on that disk.
+Create a Blueprint from this repository. Set `BOT_TOKEN`, `ADMIN_IDS`, `ADMIN_PASSWORD`, and `SESSION_SECRET` in Render's environment settings. For durable statistics, attach persistent storage and set `DATABASE_PATH` to a path on that disk.
+
+Open `/admin/login` on the deployed domain to manage required channels and ban/unban users. The bot must be an administrator in every force-join channel so Telegram allows membership checks.
+
+Telegram's current Bot API supports `style` and `icon_custom_emoji_id` on buttons. Set `PREMIUM_EMOJI_ID` to enable a custom emoji. Telegram limits custom emoji usage to eligible bots/owners; the normal emoji fallback remains visible otherwise.
