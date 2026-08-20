@@ -5,6 +5,7 @@ import secrets
 import sqlite3
 import threading
 import time
+from urllib.parse import urlencode
 from contextlib import closing
 from functools import wraps
 
@@ -248,6 +249,14 @@ def styled_url_button(text: str, url: str, style: str = "primary", emoji: str = 
     return InlineKeyboardButton(small_caps_text(text), url=url, api_kwargs=extras)
 
 
+def copy_button(text: str, value: str, style: str = "primary", emoji: str = "") -> InlineKeyboardButton:
+    extras = {"style": style, "copy_text": {"text": value}}
+    emoji_id = PREMIUM_EMOJI_ID or EMOJI_IDS.get(emoji, "")
+    if emoji_id:
+        extras["icon_custom_emoji_id"] = emoji_id
+    return InlineKeyboardButton(small_caps_text(text), api_kwargs=extras)
+
+
 def dashboard_button(text: str, style: str, emoji: str) -> KeyboardButton:
     return KeyboardButton(
         small_caps_text(text),
@@ -342,11 +351,19 @@ def remember_user(update: Update, referred_by: int | None = None) -> bool:
             """,
             (user.id, user.username, user.first_name, now, now, SIGNUP_CREDITS, referred_by if valid_referrer else None),
         )
-        if not existing:
+        signup_recorded = db.execute(
+            "SELECT 1 FROM credit_transactions WHERE telegram_id = ? AND kind = 'signup' LIMIT 1",
+            (user.id,),
+        ).fetchone()
+        bonus_granted = not bool(signup_recorded)
+        if bonus_granted:
+            if existing:
+                db.execute("UPDATE users SET credits = credits + ? WHERE telegram_id = ?", (SIGNUP_CREDITS, user.id))
             db.execute(
                 "INSERT INTO credit_transactions (telegram_id, amount, kind, note, created_at) VALUES (?, ?, 'signup', 'Welcome credits', ?)",
                 (user.id, SIGNUP_CREDITS, now),
             )
+        if not existing:
             if valid_referrer:
                 db.execute(
                     "UPDATE users SET credits = credits + ?, referral_count = referral_count + 1 WHERE telegram_id = ?",
@@ -357,7 +374,7 @@ def remember_user(update: Update, referred_by: int | None = None) -> bool:
                     (referred_by, REFERRAL_CREDITS, f"Referral reward for {user.id}", now),
                 )
         db.commit()
-    return not bool(existing)
+    return bonus_granted
 
 
 def user_summary(user_id: int):
@@ -408,9 +425,28 @@ def referral_text(user_id: int, bot_username: str) -> tuple[str, str]:
 
 def buy_packages_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [styled_button("100 CREDITS — ₹49", "buy_100", "success", "credits"), styled_button("500 CREDITS — ₹199", "buy_500", "primary", "credits")],
-        [styled_button("1000 CREDITS — ₹349", "buy_1000", "success", "buy"), styled_button("5000 CREDITS — ₹999", "buy_5000", "primary", "buy")],
+        [styled_button("100 CREDITS", "buy_100", "success", "credits"), styled_button("500 CREDITS", "buy_500", "primary", "credits")],
+        [styled_button("1000 CREDITS", "buy_1000", "success", "buy"), styled_button("5000 CREDITS", "buy_5000", "primary", "buy")],
         [styled_button("CUSTOM PACKAGE", "buy_custom", "danger", "buy")],
+    ])
+
+
+def payment_qr_url(credits: int, price: int | None) -> str:
+    params = {"pa": os.getenv("PAYMENT_UPI_ID", "gauravpayout@fam").strip(), "pn": "Annebella", "cu": "INR", "tn": f"Annebella {credits} Credits"}
+    if price is not None:
+        params["am"] = str(price)
+    payment_uri = "upi://pay?" + urlencode(params)
+    return "https://api.qrserver.com/v1/create-qr-code/?" + urlencode({"size": "320x320", "data": payment_uri})
+
+
+def usdt_payment_keyboard() -> InlineKeyboardMarkup:
+    binance_id = os.getenv("USDT_BINANCE_ID", "1114491025")
+    bep20 = os.getenv("USDT_BEP20_ADDRESS", "0x430b7abc929366ba7c4e3ca26b6c4177590c0c4f")
+    trc20 = os.getenv("USDT_TRC20_ADDRESS", "TDfzW7sn7Hut3uQr6Gnk6TyVN2aG6UoUEn")
+    erc20 = os.getenv("USDT_ERC20_ADDRESS", "0x430b7abc929366ba7c4e3ca26b6c4177590c0c4f")
+    return InlineKeyboardMarkup([
+        [copy_button("COPY BINANCE ID", binance_id, "success", "usdt"), copy_button("COPY TRC20", trc20, "primary", "usdt")],
+        [copy_button("COPY BEP20", bep20, "success", "usdt"), copy_button("COPY ERC20", erc20, "danger", "usdt")],
     ])
 
 
@@ -523,8 +559,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         elif text == "BUY CREDIT":
             await update.message.reply_text(
                 f"{premium('◆', 'buy')} <b>ANNEBELLA CREDIT STORE</b>\n\n"
-                "Select a verified credit package. The next step lets you choose UPI or USDT. "
-                "After payment, submit the transaction reference or payment screenshot for manual administrator verification.\n\n"
+                "<b>AVAILABLE PACKAGES</b>\n"
+                "100 credits — ₹49\n500 credits — ₹199\n1000 credits — ₹349\n5000 credits — ₹999\n\n"
+                "Select only the required credit quantity below. On the next screen choose UPI for a scannable payment QR, or USDT for copy-ready Binance and network addresses.\n\n"
+                "<b>PAYMENT VERIFICATION</b>\nAfter payment, send the transaction reference or screenshot here. Credits are released only after administrator approval.\n\n"
                 "<b>SECURITY NOTICE</b>\nThe bot will never request your UPI PIN, OTP, wallet seed phrase, card PIN, or account password.",
                 parse_mode=ParseMode.HTML, reply_markup=buy_packages_keyboard(),
             )
@@ -892,20 +930,35 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         context.user_data["flow"] = "payment_reference"
         if method == "upi":
             destination = os.getenv("PAYMENT_UPI_ID", "gauravpayout@fam").strip()
-            instructions = f"<b>UPI ID</b>\n<code>{destination}</code>"
+            amount = "₹" + str(package["price"]) if package.get("price") is not None else "Custom/manual"
+            caption = (
+                f"{premium('◆', 'upi')} <b>ANNEBELLA UPI PAYMENT</b>\n\n"
+                f"<b>PACKAGE</b>\n{package['credits']} credits\n\n"
+                f"<b>PAYABLE AMOUNT</b>\n{amount}\n\n"
+                f"<b>UPI ID</b>\n<code>{destination}</code>\n\n"
+                "Scan the QR or copy the UPI ID below. Verify the recipient before paying, then send the successful payment screenshot in this chat for administrator approval."
+            )
+            await query.message.reply_photo(
+                photo=payment_qr_url(package["credits"], package.get("price")),
+                caption=small_caps_html(caption),
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup([[copy_button("COPY UPI ID", destination, "success", "upi")]]),
+            )
+            return
         else:
             instructions = (
                 f"<b>BINANCE ID</b>\n<code>{os.getenv('USDT_BINANCE_ID', '1114491025')}</code>\n\n"
-                f"<b>BEP20 ADDRESS</b>\n<code>{os.getenv('USDT_BEP20_ADDRESS', '0x430b7abc929366ba7c4e3ca26b6c4177590c0c4f')}</code>\n\n"
-                f"<b>TRC20 ADDRESS</b>\n<code>{os.getenv('USDT_TRC20_ADDRESS', 'TDfzW7sn7Hut3uQr6Gnk6TyVN2aG6UoUEn')}</code>\n\n"
-                f"<b>ERC20 ADDRESS</b>\n<code>{os.getenv('USDT_ERC20_ADDRESS', '0x430b7abc929366ba7c4e3ca26b6c4177590c0c4f')}</code>"
+                f"<b>BSC / BNB — BEP20</b>\n<code>{os.getenv('USDT_BEP20_ADDRESS', '0x430b7abc929366ba7c4e3ca26b6c4177590c0c4f')}</code>\n\n"
+                f"<b>TRX / TRON — TRC20</b>\n<code>{os.getenv('USDT_TRC20_ADDRESS', 'TDfzW7sn7Hut3uQr6Gnk6TyVN2aG6UoUEn')}</code>\n\n"
+                f"<b>ETH / ETHEREUM — ERC20</b>\n<code>{os.getenv('USDT_ERC20_ADDRESS', '0x430b7abc929366ba7c4e3ca26b6c4177590c0c4f')}</code>"
             )
         await query.edit_message_text(
             f"{premium('◆', method)} <b>{method.upper()} PAYMENT INSTRUCTIONS</b>\n\n"
             f"<b>PACKAGE</b>\n{package['credits']} credits\n\n"
             f"<b>AMOUNT</b>\n{'₹' + str(package['price']) if package.get('price') is not None else 'Custom/manual'}\n\n"
-            f"{instructions}\n\nComplete payment and send the transaction reference or payment screenshot in this chat. Credits remain pending until administrator approval.",
+            f"{instructions}\n\nSelect the exact network used by the sender. Use the copy buttons below to prevent typing mistakes, then send the successful payment screenshot in this chat. Credits remain pending until administrator approval.",
             parse_mode=ParseMode.HTML,
+            reply_markup=usdt_payment_keyboard(),
         )
         return
     if query.data == "mini_unlock":
@@ -968,7 +1021,9 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
     elif query.data == "buy":
         await query.edit_message_text(
-            f"{premium('◆', 'buy')} <b>ANNEBELLA CREDIT STORE</b>\n\nSelect a credit package to continue with UPI or USDT payment.",
+            f"{premium('◆', 'buy')} <b>ANNEBELLA CREDIT STORE</b>\n\n"
+            "<b>AVAILABLE PACKAGES</b>\n100 credits — ₹49\n500 credits — ₹199\n1000 credits — ₹349\n5000 credits — ₹999\n\n"
+            "Select the required credit quantity below. Package buttons contain credits only; complete pricing and payment information is shown above.",
             parse_mode=ParseMode.HTML,
             reply_markup=buy_packages_keyboard(),
         )
