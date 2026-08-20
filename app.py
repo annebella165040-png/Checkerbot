@@ -15,6 +15,7 @@ from phonenumbers import carrier, geocoder, timezone
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, Update, WebAppInfo
 from telegram.constants import ChatMemberStatus, ParseMode
+from telegram.error import BadRequest
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, ExtBot, MessageHandler, filters
 
 
@@ -827,7 +828,14 @@ async def registration_lookup(service: str, number: str):
 
 async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
-    await query.answer()
+    try:
+        await query.answer()
+    except BadRequest as exc:
+        message = str(exc).lower()
+        if "query is too old" in message or "query id is invalid" in message:
+            logger.info("Ignored an expired callback query from user %s", update.effective_user.id)
+            return
+        raise
     if query.data == "verify_join":
         if not await membership_ok(update.effective_user.id, context):
             await query.answer("Join all required channels first.", show_alert=True)
