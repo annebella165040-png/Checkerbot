@@ -1,5 +1,5 @@
 services:
-  - type: worker
+  - type: web
     name: annebella-checker-bot
     runtime: python
     buildCommand: pip install -r requirements.txt
@@ -9,3 +9,8 @@ services:
         sync: false
       - key: ADMIN_IDS
         sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+    healthCheckPath: /healthz
