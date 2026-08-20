@@ -8,6 +8,9 @@ from contextlib import closing
 from functools import wraps
 
 from flask import Flask, flash, redirect, render_template, request, session, url_for
+import httpx
+import phonenumbers
+from phonenumbers import carrier, geocoder, timezone
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatMemberStatus, ParseMode
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
@@ -225,6 +228,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
     context.user_data["last_search"] = now
 
+    try:
+        parsed = phonenumbers.parse(normalized, None)
+        possible = phonenumbers.is_possible_number(parsed)
+        valid = phonenumbers.is_valid_number(parsed)
+        e164 = phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
+        region = geocoder.description_for_number(parsed, "en") or "Unknown"
+        original_carrier = carrier.name_for_number(parsed, "en") or "Unknown"
+        zones = ", ".join(timezone.time_zones_for_number(parsed)) or "Unknown"
+        type_names = {
+            phonenumbers.PhoneNumberType.MOBILE: "Mobile",
+            phonenumbers.PhoneNumberType.FIXED_LINE: "Landline",
+            phonenumbers.PhoneNumberType.FIXED_LINE_OR_MOBILE: "Landline or mobile",
+            phonenumbers.PhoneNumberType.TOLL_FREE: "Toll-free",
+            phonenumbers.PhoneNumberType.PREMIUM_RATE: "Premium-rate",
+            phonenumbers.PhoneNumberType.VOIP: "VoIP",
+            phonenumbers.PhoneNumberType.PERSONAL_NUMBER: "Personal number",
+            phonenumbers.PhoneNumberType.PAGER: "Pager",
+            phonenumbers.PhoneNumberType.UAN: "UAN",
+            phonenumbers.PhoneNumberType.VOICEMAIL: "Voicemail",
+        }
+        line_type = type_names.get(phonenumbers.number_type(parsed), "Unknown")
+    except phonenumbers.NumberParseException:
+        await update.message.reply_text("❌ Could not parse that mobile number.")
+        return
+
+    twilio = await twilio_lookup(e164)
+
     suffix = normalized[-4:]
     with closing(db_connect()) as db:
         db.execute(
@@ -233,14 +263,54 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         db.commit()
 
-    await update.message.reply_text(
+    details = [
         f"{premium('🔎')} <b>{service}</b>\n"
-        f"Number: ••••••{suffix}\n\n"
-        "ℹ️ Number format is valid. Registration status is unavailable because no "
-        "authorized provider integration is configured.",
+        f"Number: <code>••••••{suffix}</code>\n\n"
+        f"{'✅' if valid else '❌'} <b>Valid range:</b> {'Yes' if valid else 'No'}\n"
+        f"{'✅' if possible else '❌'} <b>Possible length:</b> {'Yes' if possible else 'No'}\n"
+        f"🌍 <b>Region:</b> {region}\n"
+        f"📡 <b>Number type:</b> {line_type}\n"
+        f"🏢 <b>Original carrier:</b> {original_carrier}\n"
+        f"🕒 <b>Timezone:</b> {zones}"
+    ]
+    if twilio:
+        live_type = twilio.get("line_type_intelligence") or {}
+        line_status = twilio.get("line_status") or {}
+        details.append(
+            "\n\n<b>Live provider intelligence</b>\n"
+            f"📶 <b>Current carrier:</b> {live_type.get('carrier_name') or 'Unavailable'}\n"
+            f"☎️ <b>Live line type:</b> {live_type.get('type') or 'Unavailable'}\n"
+            f"🟢 <b>Line status:</b> {line_status.get('status') or 'Unavailable'}"
+        )
+    details.append(
+        "\n\nℹ️ Third-party account registration status is not exposed by an authorized API."
+    )
+    await update.message.reply_text(
+        "".join(details),
         parse_mode=ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup([[styled_button("🔄 Check Another", f"service:{service}", "success")]]),
     )
+
+
+async def twilio_lookup(number: str):
+    account_sid = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
+    auth_token = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
+    if not account_sid or not auth_token:
+        return None
+    fields = os.getenv("TWILIO_LOOKUP_FIELDS", "").strip()
+    params = {"Fields": fields} if fields else {}
+    try:
+        async with httpx.AsyncClient(timeout=12) as client:
+            response = await client.get(
+                f"https://lookups.twilio.com/v2/PhoneNumbers/{number}",
+                params=params,
+                auth=(account_sid, auth_token),
+            )
+            response.raise_for_status()
+            return response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("Twilio Lookup unavailable: %s", type(exc).__name__)
+        return None
 
 
 async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
