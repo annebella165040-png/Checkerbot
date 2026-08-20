@@ -125,7 +125,7 @@ class SmallCapsBot(ExtBot):
 
 DASHBOARD_ACTIONS = {
     "CHECK SERVICES", "PROFILE", "BUY CREDIT", "MINI APP",
-    "GIFT CARD", "REFER & EARN", "HOW IT WORKS", "SUPPORT",
+    "GIFT CARD", "REFER & EARN", "HOW IT WORKS", "SUPPORT", "BACK",
 }
 
 logging.basicConfig(
@@ -270,7 +270,8 @@ def dashboard_keyboard() -> ReplyKeyboardMarkup:
             [dashboard_button("CHECK SERVICES", "success", "search"), dashboard_button("PROFILE", "primary", "profile")],
             [dashboard_button("BUY CREDIT", "success", "buy"), dashboard_button("MINI APP", "primary", "miniapp")],
             [dashboard_button("GIFT CARD", "success", "gift"), dashboard_button("REFER & EARN", "success", "referral")],
-            [dashboard_button("HOW IT WORKS", "primary", "help"), dashboard_button("SUPPORT", "danger", "support")],
+            [dashboard_button("HOW IT WORKS", "primary", "help"), dashboard_button("BACK", "primary", "back")],
+            [dashboard_button("SUPPORT", "danger", "support")],
         ],
         resize_keyboard=True,
         is_persistent=True,
@@ -398,14 +399,15 @@ def profile_text(user_id: int) -> str:
     mini_status = "UNLOCKED" if unlocked else f"LOCKED — {max(0, MINI_APP_COST - credits)} MORE CREDITS REQUIRED"
     return (
         f"{premium('◆', 'profile')} <b>ANNEBELLA MEMBER PROFILE</b>\n\n"
-        f"<b>ACCOUNT HOLDER</b>\n{name or 'Telegram User'}\n\n"
-        f"<b>USERNAME</b>\n{'@' + username if username else 'Not configured'}\n\n"
-        f"<b>TELEGRAM ID</b>\n<code>{user_id}</code>\n\n"
-        f"<b>AVAILABLE CREDITS</b>\n{credits}\n\n"
-        f"<b>SUCCESSFUL REFERRALS</b>\n{referrals}\n\n"
-        f"<b>MINI APP ACCESS</b>\n{mini_status}\n\n"
-        f"<b>MEMBER SINCE</b>\n{time.strftime('%d %B %Y', time.localtime(first_seen))}\n\n"
-        "Your balance changes only after determined checks, verified referrals, redeemed gift cards, or approved payments."
+        f"{premium('◆', 'profile')} <b>ACCOUNT HOLDER</b>\n{name or 'Telegram User'}\n\n"
+        f"{premium('◆', 'sparkle')} <b>USERNAME</b>\n{'@' + username if username else 'Not configured'}\n\n"
+        f"{premium('◆', 'home')} <b>TELEGRAM ID</b>\n<code>{user_id}</code>\n\n"
+        f"{premium('◆', 'credits')} <b>AVAILABLE CREDITS</b>\n{credits} credits\n\n"
+        f"{premium('◆', 'referral')} <b>SUCCESSFUL REFERRALS</b>\n{referrals}\n\n"
+        f"{premium('◆', 'miniapp')} <b>MINI APP ACCESS</b>\n{mini_status}\n\n"
+        f"{premium('◆', 'check')} <b>ACCOUNT STATUS</b>\nACTIVE AND VERIFIED\n\n"
+        f"{premium('◆', 'help')} <b>MEMBER SINCE</b>\n{time.strftime('%d %B %Y', time.localtime(first_seen))}\n\n"
+        f"{premium('◆', 'support')} Balance changes are protected by the account ledger and occur only after determined checks, verified referrals, redeemed gift cards, or approved payments."
     )
 
 
@@ -560,10 +562,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await update.message.reply_text(
                 f"{premium('◆', 'buy')} <b>ANNEBELLA CREDIT STORE</b>\n\n"
                 "<b>AVAILABLE PACKAGES</b>\n"
-                "100 credits — ₹49\n500 credits — ₹199\n1000 credits — ₹349\n5000 credits — ₹999\n\n"
-                "Select only the required credit quantity below. On the next screen choose UPI for a scannable payment QR, or USDT for copy-ready Binance and network addresses.\n\n"
-                "<b>PAYMENT VERIFICATION</b>\nAfter payment, send the transaction reference or screenshot here. Credits are released only after administrator approval.\n\n"
-                "<b>SECURITY NOTICE</b>\nThe bot will never request your UPI PIN, OTP, wallet seed phrase, card PIN, or account password.",
+                f"{premium('◆', 'credits')} 100 credits — ₹49\n{premium('◆', 'credits')} 500 credits — ₹199\n"
+                f"{premium('◆', 'credits')} 1000 credits — ₹349\n{premium('◆', 'credits')} 5000 credits — ₹999\n\n"
+                f"{premium('◆', 'upi')} Select UPI for a scannable payment QR.\n"
+                f"{premium('◆', 'usdt')} Select USDT for copy-ready Binance and network addresses.\n\n"
+                f"{premium('◆', 'check')} <b>PAYMENT VERIFICATION</b>\nAfter payment, send the transaction reference or screenshot here. Credits are released only after administrator approval.\n\n"
+                f"{premium('◆', 'support')} <b>SECURITY NOTICE</b>\nThe bot will never request your UPI PIN, OTP, wallet seed phrase, card PIN, or account password.",
                 parse_mode=ParseMode.HTML, reply_markup=buy_packages_keyboard(),
             )
         elif text == "MINI APP":
@@ -579,6 +583,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 f"{premium('◆', 'miniapp')} <b>ANNEBELLA CHECKER MINI APP</b>\n\n{message}\n\n"
                 "The Mini App provides a mobile web dashboard with account balance, checker directory, referral status, and access information.",
                 parse_mode=ParseMode.HTML, reply_markup=markup,
+            )
+        elif text == "BACK":
+            await update.message.reply_text(
+                f"{premium('◆', 'back')} <b>ANNEBELLA MAIN DASHBOARD</b>\n\nSelect an account action below or open Check Services to start a lookup.",
+                parse_mode=ParseMode.HTML,
+                reply_markup=dashboard_keyboard(),
             )
         elif text == "GIFT CARD":
             context.user_data["flow"] = "gift_card"
@@ -772,10 +782,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         status_line = f"{premium('◆', 'support')} <b>NOT REGISTERED</b>"
     details = [
         f"{premium('◆', 'search')} <b>{service.upper()} CHECKER</b>\n"
-        f"Number: <code>••••••{suffix}</code>\n\n"
+        f"{premium('◆', 'profile')} <b>Number:</b> <code>••••••{suffix}</code>\n\n"
         f"{status_line}\n"
         f"{premium('◆', 'credits')} <b>Lookup charge:</b> {CHECK_COST if checker_error is None else 0} credits\n\n"
-        f"<b>Region:</b> {region}\n<b>Number type:</b> {line_type}\n<b>Original carrier:</b> {original_carrier}\n<b>Timezone:</b> {zones}"
+        f"{premium('◆', 'home')} <b>Region:</b> {region}\n"
+        f"{premium('◆', 'profile')} <b>Number type:</b> {line_type}\n"
+        f"{premium('◆', 'sparkle')} <b>Original carrier:</b> {original_carrier}\n"
+        f"{premium('◆', 'help')} <b>Timezone:</b> {zones}"
     ]
     await update.message.reply_text(
         "".join(details),
@@ -837,11 +850,13 @@ async def registration_lookup(service: str, number: str):
     service_id = SERVICE_IDS.get(service, service.lower())
     try:
         async with httpx.AsyncClient(timeout=12) as client:
-            response = await client.get(
+            response = await client.post(
                 f"{api_url}/api/v1/check",
-                params={"service": service_id, "number": number.lstrip("+")},
+                json={"service": service_id, "number": number.lstrip("+")},
                 headers={"X-API-Key": api_key},
             )
+            if response.status_code in {401, 403}:
+                return None, "Checker API key is invalid or revoked"
             if response.status_code == 429:
                 return None, "Rate limit reached; try again shortly"
             response.raise_for_status()
@@ -1022,8 +1037,10 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     elif query.data == "buy":
         await query.edit_message_text(
             f"{premium('◆', 'buy')} <b>ANNEBELLA CREDIT STORE</b>\n\n"
-            "<b>AVAILABLE PACKAGES</b>\n100 credits — ₹49\n500 credits — ₹199\n1000 credits — ₹349\n5000 credits — ₹999\n\n"
-            "Select the required credit quantity below. Package buttons contain credits only; complete pricing and payment information is shown above.",
+            f"{premium('◆', 'credits')} <b>AVAILABLE PACKAGES</b>\n"
+            f"{premium('◆', 'credits')} 100 credits — ₹49\n{premium('◆', 'credits')} 500 credits — ₹199\n"
+            f"{premium('◆', 'credits')} 1000 credits — ₹349\n{premium('◆', 'credits')} 5000 credits — ₹999\n\n"
+            f"{premium('◆', 'check')} Select the required credit quantity below. Package buttons contain credits only; complete pricing and payment information is shown above.",
             parse_mode=ParseMode.HTML,
             reply_markup=buy_packages_keyboard(),
         )
