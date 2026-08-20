@@ -59,6 +59,12 @@ EMOJI_IDS = {
     "upi": "6019521004647223512",
     "usdt": "6035152649790164056",
 }
+EMOJI_FALLBACKS = {
+    "sparkle": "✨", "profile": "✦", "search": "✦", "credits": "💎",
+    "referral": "👥", "support": "🖥️", "buy": "✦", "back": "📶",
+    "check": "✅", "gift": "🎁", "help": "🎵", "miniapp": "🖥️",
+    "home": "🏠", "upi": "💸", "usdt": "🖥️",
+}
 
 DASHBOARD_ACTIONS = {
     "CHECK SERVICES", "PROFILE", "BUY CREDIT", "MINI APP",
@@ -166,7 +172,8 @@ def premium(emoji: str, name: str = "sparkle") -> str:
     emoji_id = PREMIUM_EMOJI_ID or EMOJI_IDS.get(name, "")
     if not emoji_id:
         return emoji
-    return f'<tg-emoji emoji-id="{emoji_id}">{emoji}</tg-emoji>'
+    entity_text = emoji if PREMIUM_EMOJI_ID else EMOJI_FALLBACKS.get(name, emoji)
+    return f'<tg-emoji emoji-id="{emoji_id}">{entity_text}</tg-emoji>'
 
 
 def styled_button(text: str, data: str, style: str = "primary", emoji: str = "") -> InlineKeyboardButton:
