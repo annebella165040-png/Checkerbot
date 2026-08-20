@@ -320,10 +320,22 @@ def menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-def join_menu(channels) -> InlineKeyboardMarkup:
-    buttons = [styled_url_button(f"JOIN {title}", url, "primary", "sparkle") for _, title, url in channels]
+def join_menu(channels, joined: list[bool]) -> InlineKeyboardMarkup:
+    styles = ("primary", "success", "danger")
+    buttons = [
+        styled_url_button(
+            f"{'JOINED' if joined[index] else 'JOIN'} — {title}", url,
+            styles[index % len(styles)], "check" if joined[index] else "link",
+        )
+        for index, (_, title, url) in enumerate(channels)
+    ]
     rows = [buttons[index:index + 2] for index in range(0, len(buttons), 2)]
-    rows.append([styled_button("VERIFY MEMBERSHIP", "verify_join", "success", "check")])
+    all_joined = bool(channels) and all(joined)
+    rows.append([
+        styled_button("ENTER BOT" if all_joined else "CHECK JOINED", "verify_join", "success" if all_joined else "primary", "rocket" if all_joined else "check"),
+        styled_button("REFRESH", "verify_join", "primary", "refresh"),
+    ])
+    rows.append([styled_url_button("SUPPORT", SUPPORT_URL, "danger", "support")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -334,19 +346,39 @@ def enabled_channels():
         ).fetchall()
 
 
-async def membership_ok(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
+async def membership_status(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> list[bool]:
+    statuses = []
     for chat_id, _, _ in enabled_channels():
         try:
             member = await context.bot.get_chat_member(chat_id, user_id)
-            if member.status not in {
+            statuses.append(member.status in {
                 ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR,
                 ChatMemberStatus.MEMBER, ChatMemberStatus.RESTRICTED,
-            }:
-                return False
+            })
         except Exception:
             logger.warning("Could not verify required channel %s", chat_id)
-            return False
-    return True
+            statuses.append(False)
+    return statuses
+
+
+async def membership_ok(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    return all(await membership_status(user_id, context))
+
+
+def force_join_text(channels, joined: list[bool]) -> str:
+    joined_count = sum(joined)
+    total = len(channels)
+    progress = f"{'■' * joined_count}{'□' * max(0, total - joined_count)} {joined_count}/{total}"
+    missing = "\n".join(
+        f"{index + 1}. {escape(title)}" for index, (_, title, _) in enumerate(channels) if not joined[index]
+    ) or "NONE"
+    return (
+        f"{premium('◆', 'lock')} <b>FORCE JOIN REQUIRED</b>\n{divider()}\n\n"
+        f"{premium('◆', 'globe')} <b>JOIN STATUS:</b> {progress}\n"
+        f"{premium('◆', 'warn')} <b>MISSING CHANNELS:</b>\n{missing}\n\n"
+        f"{premium('◆', 'link')} JOIN ALL REQUIRED CHANNELS TO CONTINUE.\n"
+        f"{premium('◆', 'refresh')} AFTER JOINING, TAP <b>CHECK JOINED</b>."
+    )
 
 
 async def gate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -356,11 +388,12 @@ async def gate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         await update.effective_message.reply_text(f"{premium('◆', 'support')} <b>ACCESS SUSPENDED</b>\n\nContact support if you believe this restriction is incorrect.", parse_mode=ParseMode.HTML)
         return False
     channels = enabled_channels()
-    if channels and not await membership_ok(update.effective_user.id, context):
+    joined = await membership_status(update.effective_user.id, context) if channels else []
+    if channels and not all(joined):
         await update.effective_message.reply_text(
-            f"{premium('🔐')} <b>Join Required</b>\n\nJoin all channels below, then tap verify.",
+            force_join_text(channels, joined),
             parse_mode=ParseMode.HTML,
-            reply_markup=join_menu(channels),
+            reply_markup=join_menu(channels, joined),
         )
         return False
     return True
@@ -980,6 +1013,30 @@ async def registration_lookup(service: str, number: str):
 
 async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
+    if query.data == "verify_join":
+        channels = enabled_channels()
+        joined = await membership_status(update.effective_user.id, context) if channels else []
+        if channels and not all(joined):
+            try:
+                await query.answer(f"Joined {sum(joined)}/{len(channels)} — complete the missing channels.", show_alert=True)
+            except BadRequest:
+                return
+            try:
+                await query.edit_message_text(force_join_text(channels, joined), parse_mode=ParseMode.HTML, reply_markup=join_menu(channels, joined))
+            except BadRequest as exc:
+                if "message is not modified" not in str(exc).lower():
+                    raise
+            return
+        try:
+            await query.answer("Membership verified.")
+        except BadRequest:
+            return
+        remember_user(update, context.user_data.pop("pending_referrer", None))
+        credits = user_summary(update.effective_user.id)[2]
+        await query.edit_message_text(welcome_text(update.effective_user.first_name, credits), parse_mode=ParseMode.HTML)
+        await query.message.reply_text(verified_text(), parse_mode=ParseMode.HTML, reply_markup=dashboard_keyboard())
+        await query.message.reply_text(f"{premium('◆', 'lightning')} <b>BOT READY! USE THE DASHBOARD BUTTONS BELOW.</b>", parse_mode=ParseMode.HTML)
+        return
     try:
         await query.answer()
     except BadRequest as exc:
@@ -988,26 +1045,6 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             logger.info("Ignored an expired callback query from user %s", update.effective_user.id)
             return
         raise
-    if query.data == "verify_join":
-        if not await membership_ok(update.effective_user.id, context):
-            await query.answer("Join all required channels first.", show_alert=True)
-            return
-        remember_user(update, context.user_data.pop("pending_referrer", None))
-        credits = user_summary(update.effective_user.id)[2]
-        await query.edit_message_text(
-            welcome_text(update.effective_user.first_name, credits),
-            parse_mode=ParseMode.HTML,
-        )
-        await query.message.reply_text(
-            verified_text(),
-            parse_mode=ParseMode.HTML,
-            reply_markup=dashboard_keyboard(),
-        )
-        await query.message.reply_text(
-            f"{premium('◆', 'lightning')} <b>BOT READY! USE THE DASHBOARD BUTTONS BELOW.</b>",
-            parse_mode=ParseMode.HTML,
-        )
-        return
     if not await gate(update, context):
         return
     remember_user(update)

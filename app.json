@@ -1,0 +1,24 @@
+{
+  "name": "Annebella Checker Bot",
+  "description": "Telegram registration checker with credits, referrals, Mini App and web administration.",
+  "repository": "https://github.com/annebella165040-png/Checkerbot",
+  "logo": "https://telegram.org/img/t_logo.png",
+  "keywords": ["telegram", "python", "flask", "checker-bot"],
+  "env": {
+    "BOT_TOKEN": {"description": "Telegram bot token from BotFather", "required": true},
+    "BOT_USERNAME": {"description": "Bot username without @", "value": "AnneBellaCheckerBot"},
+    "ADMIN_IDS": {"description": "Comma-separated Telegram administrator IDs", "required": true},
+    "ADMIN_PASSWORD": {"description": "Strong password for the web admin panel", "generator": "secret"},
+    "SESSION_SECRET": {"description": "Flask session signing secret", "generator": "secret"},
+    "CHECKER_API_URL": {"description": "Registration checker provider base URL", "value": "https://superassets.in"},
+    "CHECKER_API_KEY": {"description": "Registration checker provider API key", "required": true},
+    "SUPPORT_URL": {"description": "Telegram support chat URL", "value": "https://t.me/annebella"},
+    "SIGNUP_CREDITS": {"value": "150"},
+    "REFERRAL_CREDITS": {"value": "20"},
+    "CHECK_COST": {"value": "5"},
+    "MINI_APP_COST": {"value": "1000"},
+    "DATABASE_PATH": {"value": "checkerbot.db"}
+  },
+  "formation": {"web": {"quantity": 1, "size": "basic"}},
+  "buildpacks": [{"url": "heroku/python"}]
+}

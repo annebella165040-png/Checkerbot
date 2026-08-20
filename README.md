@@ -2,6 +2,11 @@
 
 A Telegram registration checker inspired by the supplied reference. Users select a service, submit a mobile number, and receive the provider's Registered / Not Registered response. The bot never stores full phone numbers; only the final four digits are retained for aggregate statistics.
 
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new)
+[![Deploy to Heroku](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/annebella165040-png/Checkerbot)
+
+> Use only with mobile numbers you own or are authorized to check. Never commit bot tokens, provider keys, payment credentials, or production databases.
+
 ## Features
 
 - Branded `/start` flow with an inline-only 18-service checker directory
@@ -12,6 +17,7 @@ A Telegram registration checker inspired by the supplied reference. Users select
 - Restricted `/admin` dashboard
 - Password-protected web admin panel at `/admin`
 - Force-join channel management and membership verification
+- TempSMS-style force-join progress, per-channel JOIN/JOINED buttons, refresh verification and support access
 - Modern inline checker menu with Bot API button styles
 - Optional premium custom emoji for messages and buttons
 - Google libphonenumber-based country, type, carrier, and timezone intelligence
@@ -53,6 +59,30 @@ Open `/admin/login` on the deployed domain to manage required channels and ban/u
 
 Telegram's current Bot API supports `style` and `icon_custom_emoji_id` on buttons. The dashboard uses dedicated premium IDs from the TempSmsBot design; `PREMIUM_EMOJI_ID` can override message-level branding. Telegram limits custom emoji usage to eligible bots/owners.
 
+## Deploy on Railway
+
+1. Click **Deploy on Railway** above, choose **Deploy from GitHub repo**, and select `annebella165040-png/Checkerbot`.
+2. Add every required secret from `.env.example`, especially `BOT_TOKEN`, `CHECKER_API_KEY`, `ADMIN_IDS`, `ADMIN_PASSWORD`, and `SESSION_SECRET`.
+3. Generate a public domain in **Settings → Networking**.
+4. Set both `PUBLIC_APP_URL` and `MINI_APP_URL` to that HTTPS domain, without a trailing slash.
+5. Redeploy, then confirm `https://your-domain/healthz` returns `{"ok": true, ...}`.
+
+For persistent users, credits and history, attach a Railway volume and set `DATABASE_PATH` to a file inside its mount path, for example `/data/checkerbot.db`. Run only one replica because Telegram long polling permits one active consumer for a bot token.
+
+## Deploy on Heroku
+
+1. Click **Deploy to Heroku** above and provide all required Config Vars.
+2. After deployment, set `PUBLIC_APP_URL` and `MINI_APP_URL` to `https://your-app.herokuapp.com`.
+3. Ensure exactly one `web` dyno is active and verify `/healthz`.
+
+Heroku's filesystem is ephemeral. Use an external/durable database for production records; a local SQLite file can be lost during restart or redeploy.
+
+## Force-join setup
+
+Open `/admin/login`, select **Channels**, and add each required channel's exact `@username` or numeric `-100...` chat ID, title, and public/invite URL. Promote the bot to administrator in every configured channel. Users then see live progress, missing channels, premium-emoji JOIN/JOINED buttons, CHECK JOINED, REFRESH and Support controls before dashboard access is unlocked.
+
+If membership always shows missing, confirm the chat ID and bot administrator status first. A private channel must use a valid invite URL while its membership lookup uses the numeric chat ID.
+
 ## Checker API
 
 `CHECKER_API_URL` defaults to `https://superassets.in`. Keep `CHECKER_API_KEY` in the hosting platform's secret environment settings; never commit it. The bot treats missing, malformed, and rate-limited provider responses as undetermined instead of falsely reporting Not Registered.
@@ -66,3 +96,19 @@ The Buy Credits flow supports 100/500/1000/5000 packages, custom quantities, UPI
 ## Advanced administrator panel
 
 The password-protected panel includes operational statistics, force-join channel management, user suspension/restoration, manual credit adjustments, payment approval/rejection, and a support-ticket queue. Use HTTPS, a strong `ADMIN_PASSWORD`, and a durable `DATABASE_PATH` in production.
+
+## Project files
+
+- `app.py` — Telegram bot, API integration, Mini App and admin routes
+- `templates/` — responsive TempSMS-style web interfaces
+- `.env.example` — complete environment-variable template
+- `railway.json` — Railway build, health check and restart policy
+- `app.json` — Heroku one-click deployment manifest
+- `render.yaml` — Render Blueprint
+- `Procfile` — web process declaration
+- `.python-version` — portable Python runtime selection
+- `LICENSE` — MIT license
+
+## License
+
+Released under the [MIT License](LICENSE).
