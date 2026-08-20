@@ -547,6 +547,17 @@ async def pin_private_welcome(message, context: ContextTypes.DEFAULT_TYPE) -> No
         logger.warning("Could not pin private welcome for chat %s: %s", message.chat_id, type(exc).__name__)
 
 
+async def cleanup_pin_service_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Remove Telegram's automatic 'pinned a message' notice in private chats."""
+    message = update.effective_message
+    if not message or not message.pinned_message or message.chat.type != ChatType.PRIVATE:
+        return
+    try:
+        await context.bot.delete_message(chat_id=message.chat_id, message_id=message.message_id)
+    except Exception as exc:
+        logger.info("Could not delete private pin notice for chat %s: %s", message.chat_id, type(exc).__name__)
+
+
 def buy_packages_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [styled_button("100 CREDITS", "buy_100", "success", "credits"), styled_button("500 CREDITS", "buy_500", "primary", "credits")],
@@ -1464,6 +1475,7 @@ def main() -> None:
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("admin", admin))
     application.add_handler(CallbackQueryHandler(callbacks))
+    application.add_handler(MessageHandler(filters.StatusUpdate.PINNED_MESSAGE, cleanup_pin_service_message))
     application.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, handle_payment_proof))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_error_handler(telegram_error_handler)
