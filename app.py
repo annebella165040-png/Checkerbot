@@ -5,6 +5,7 @@ import secrets
 import sqlite3
 import threading
 import time
+from html import escape
 from urllib.parse import urlencode
 from contextlib import closing
 from functools import wraps
@@ -74,6 +75,11 @@ EMOJI_IDS = {
     "wave": "5247133031235329609",
     "warn": "6206174450765796040",
     "trophy": "6203750195130274981",
+    "rocket": "5372917041193828849",
+    "fire": "6206080502651164081",
+    "lock": "6206404510689007446",
+    "globe": "5372849966689566579",
+    "india": "5291933173674957761",
 }
 EMOJI_FALLBACKS = {
     "sparkle": "✨", "profile": "👤", "search": "🔎", "credits": "💎",
@@ -84,6 +90,7 @@ EMOJI_FALLBACKS = {
     "joined": "📅", "lightning": "⚡", "phone": "📱", "money": "💰",
     "history": "📋", "refresh": "🔄", "star": "⭐", "wave": "〰️",
     "warn": "⚠️", "trophy": "🏆",
+    "rocket": "🚀", "fire": "🔥", "lock": "🔒", "globe": "🌐", "india": "🇮🇳",
 }
 
 SC_MAP = {
@@ -302,9 +309,11 @@ def dashboard_keyboard() -> ReplyKeyboardMarkup:
 
 
 def menu() -> InlineKeyboardMarkup:
-    styles = (["primary", "success", "danger"] * ((len(SERVICES) + 2) // 3))[:len(SERVICES)]
-    secrets.SystemRandom().shuffle(styles)
-    buttons = [styled_button(name, f"service:{name}", styles[index], "search") for index, name in enumerate(SERVICES)]
+    style_cycle = ("primary", "success", "danger")
+    buttons = [
+        styled_button(name, f"service:{name}", style_cycle[((index // 3) + (index % 3)) % 3], "search")
+        for index, name in enumerate(SERVICES)
+    ]
     rows = [buttons[index:index + 3] for index in range(0, len(buttons), 3)]
     return InlineKeyboardMarkup(rows)
 
@@ -455,6 +464,40 @@ def referral_text(user_id: int, bot_username: str) -> tuple[str, str]:
     return text, link
 
 
+def welcome_text(first_name: str, credits: int) -> str:
+    return (
+        f"{premium('◆', 'lightning')} <b>ANNEBELLA CHECKER BOT</b> {premium('◆', 'sparkle')}\n"
+        f"{divider()}\n\n"
+        f"{premium('◆', 'sparkle')} <b>WELCOME, {escape(first_name or 'MEMBER')}!</b>\n\n"
+        f"{premium('◆', 'search')} <b>CHECK APP REGISTRATION STATUS</b>\n"
+        "<i>Professional multi-service mobile-number intelligence with clear, credit-protected results.</i>\n\n"
+        f"{divider()}\n\n"
+        f"{premium('◆', 'fire')} <b>WHY ANNEBELLA?</b>\n\n"
+        f"{premium('◆', 'globe')} 18 SUPPORTED APPLICATION SERVICES\n"
+        f"{premium('◆', 'lightning')} LIVE AUTHORIZED PROVIDER LOOKUPS\n"
+        f"{premium('◆', 'check')} REGISTERED / NOT REGISTERED RESULTS\n"
+        f"{premium('◆', 'lock')} MASKED NUMBERS AND SECURE HISTORY\n"
+        f"{premium('◆', 'gift')} START FREE — NO CARD REQUIRED\n\n"
+        f"{divider()}\n\n"
+        f"{premium('◆', 'credits')} <b>WELCOME CREDIT BALANCE</b>\n"
+        f"{credits} CREDITS AVAILABLE IN YOUR ACCOUNT.\n\n"
+        f"{premium('◆', 'money')} <b>CREDITS PLAN</b>\n"
+        f"{premium('◆', 'search')} DETERMINED CHECK → <b>{CHECK_COST} CREDITS</b>\n"
+        f"{premium('◆', 'referral')} REFER A FRIEND → <b>{REFERRAL_CREDITS} CREDITS</b>\n"
+        f"{premium('◆', 'miniapp')} MINI APP UNLOCK → <b>{MINI_APP_COST} CREDITS</b>\n\n"
+        f"{divider()}\n\n"
+        f"{premium('◆', 'rocket')} <i>CHOOSE AN OPTION FROM THE DASHBOARD BELOW.</i>"
+    )
+
+
+def verified_text() -> str:
+    return (
+        f"{premium('◆', 'check')} <b>FORCE JOIN VERIFIED</b>\n{divider()}\n\n"
+        f"{premium('◆', 'rocket')} ALL REQUIRED CHANNELS JOINED.\n"
+        f"{premium('◆', 'lightning')} YOUR ANNEBELLA BOT ACCESS IS NOW UNLOCKED."
+    )
+
+
 def buy_packages_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [styled_button("100 CREDITS", "buy_100", "success", "credits"), styled_button("500 CREDITS", "buy_500", "primary", "credits")],
@@ -517,22 +560,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         except Exception:
             logger.info("Could not deliver referral notification to %s", referred_by)
     context.user_data.pop("service", None)
-    signup_note = f"\n\n{premium('◆', 'gift')} <b>Welcome bonus:</b> {SIGNUP_CREDITS} credits added." if is_new else ""
+    credits = user_summary(update.effective_user.id)[2]
     await update.message.reply_text(
-        f"{premium('✨')} <b>Welcome to {BOT_NAME}</b>\n\n"
-        "Professional multi-service registration intelligence in one secure interface. "
-        "Use the persistent dashboard below for your profile, credits, Mini App, gift cards, referrals, guidance, and support."
-        f"\n\n{premium('◆', 'credits')} <b>Per determined lookup:</b> {CHECK_COST} credits"
-        f"\n{premium('◆', 'referral')} <b>Referral reward:</b> {REFERRAL_CREDITS} credits"
-        f"{signup_note}",
+        welcome_text(update.effective_user.first_name, credits),
         parse_mode=ParseMode.HTML,
         reply_markup=dashboard_keyboard(),
     )
     await update.message.reply_text(
-        f"{premium('◆', 'search')} <b>Checker Service Directory</b>\n\n"
-        "Select the application you want to check. Application choices remain inline for a clean, focused workflow.",
+        verified_text(),
         parse_mode=ParseMode.HTML,
-        reply_markup=menu(),
+    )
+    await update.message.reply_text(
+        f"{premium('◆', 'lightning')} <b>BOT READY! USE THE DASHBOARD BUTTONS BELOW.</b>",
+        parse_mode=ParseMode.HTML,
     )
 
 
@@ -933,17 +973,21 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not await membership_ok(update.effective_user.id, context):
             await query.answer("Join all required channels first.", show_alert=True)
             return
-        is_new = remember_user(update, context.user_data.pop("pending_referrer", None))
+        remember_user(update, context.user_data.pop("pending_referrer", None))
+        credits = user_summary(update.effective_user.id)[2]
         await query.edit_message_text(
-            f"{premium('◆', 'check')} <b>MEMBERSHIP VERIFIED</b>\n\nSelect an application checker below.",
+            welcome_text(update.effective_user.first_name, credits),
             parse_mode=ParseMode.HTML,
-            reply_markup=menu(),
         )
-        if is_new:
-            await query.message.reply_text(
-                f"{premium('◆', 'gift')} <b>WELCOME CREDITS ACTIVATED</b>\n\n{SIGNUP_CREDITS} credits were added to your account. The persistent account dashboard is now available below.",
-                parse_mode=ParseMode.HTML, reply_markup=dashboard_keyboard(),
-            )
+        await query.message.reply_text(
+            verified_text(),
+            parse_mode=ParseMode.HTML,
+            reply_markup=dashboard_keyboard(),
+        )
+        await query.message.reply_text(
+            f"{premium('◆', 'lightning')} <b>BOT READY! USE THE DASHBOARD BUTTONS BELOW.</b>",
+            parse_mode=ParseMode.HTML,
+        )
         return
     if not await gate(update, context):
         return
