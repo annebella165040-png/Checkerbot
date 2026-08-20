@@ -11,6 +11,18 @@ services:
         value: https://superassets.in
       - key: CHECKER_API_KEY
         sync: false
+      - key: BOT_USERNAME
+        sync: false
+      - key: PAYMENT_UPI_ID
+        sync: false
+      - key: SUPPORT_URL
+        value: https://t.me/annebella
+      - key: SIGNUP_CREDITS
+        value: 10
+      - key: REFERRAL_CREDITS
+        value: 5
+      - key: CHECK_COST
+        value: 1
       - key: ADMIN_IDS
         sync: false
       - key: ADMIN_PASSWORD
