@@ -13,6 +13,8 @@ A privacy-conscious Telegram checker interface inspired by the supplied referenc
 - Force-join channel management and membership verification
 - Modern inline checker menu with Bot API button styles
 - Optional premium custom emoji for messages and buttons
+- Google libphonenumber-based country, type, carrier, and timezone intelligence
+- Optional Twilio Lookup v2 integration for live carrier/status/risk packages
 - No hard-coded secrets
 - Render worker configuration
 
@@ -41,3 +43,11 @@ Create a Blueprint from this repository. Set `BOT_TOKEN`, `ADMIN_IDS`, `ADMIN_PA
 Open `/admin/login` on the deployed domain to manage required channels and ban/unban users. The bot must be an administrator in every force-join channel so Telegram allows membership checks.
 
 Telegram's current Bot API supports `style` and `icon_custom_emoji_id` on buttons. Set `PREMIUM_EMOJI_ID` to enable a custom emoji. Telegram limits custom emoji usage to eligible bots/owners; the normal emoji fallback remains visible otherwise.
+
+## Phone intelligence
+
+Without paid credentials, the bot uses libphonenumber metadata to report whether the number range is possible/valid, its region, number type, original carrier allocation, and timezone. This does not prove that a number is currently assigned or reachable.
+
+Set `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN` to enable Twilio Basic Lookup. Set `TWILIO_LOOKUP_FIELDS` only if you have enabled the corresponding paid packages, such as `line_type_intelligence,line_status`. Twilio bills optional data packages per lookup.
+
+No legitimate provider API exposes whether arbitrary phone numbers have accounts at Amazon, Flipkart, WhatsApp, or the other menu services. The project intentionally does not automate login, password-reset, or OTP endpoints for account enumeration.
