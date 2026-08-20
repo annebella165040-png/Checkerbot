@@ -15,7 +15,7 @@ from phonenumbers import carrier, geocoder, timezone
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, Update, WebAppInfo
 from telegram.constants import ChatMemberStatus, ParseMode
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, ExtBot, MessageHandler, filters
 
 
 BOT_NAME = "Annebella Checker Bot"
@@ -60,11 +60,66 @@ EMOJI_IDS = {
     "usdt": "6035152649790164056",
 }
 EMOJI_FALLBACKS = {
-    "sparkle": "✨", "profile": "✦", "search": "✦", "credits": "💎",
-    "referral": "👥", "support": "🖥️", "buy": "✦", "back": "📶",
+    "sparkle": "✨", "profile": "👤", "search": "🔎", "credits": "💎",
+    "referral": "👥", "support": "🖥️", "buy": "💳", "back": "📶",
     "check": "✅", "gift": "🎁", "help": "🎵", "miniapp": "🖥️",
     "home": "🏠", "upi": "💸", "usdt": "🖥️",
 }
+
+SC_MAP = {
+    "A": "ᴀ", "B": "ʙ", "C": "ᴄ", "D": "ᴅ", "E": "ᴇ", "F": "ꜰ",
+    "G": "ɢ", "H": "ʜ", "I": "ɪ", "J": "ᴊ", "K": "ᴋ", "L": "ʟ",
+    "M": "ᴍ", "N": "ɴ", "O": "ᴏ", "P": "ᴘ", "Q": "ǫ", "R": "ʀ",
+    "S": "ꜱ", "T": "ᴛ", "U": "ᴜ", "V": "ᴠ", "W": "ᴡ", "X": "x",
+    "Y": "ʏ", "Z": "ᴢ",
+}
+SC_REVERSE_MAP = {value: key for key, value in SC_MAP.items()}
+
+
+def small_caps_text(text: str) -> str:
+    return "".join(SC_MAP.get(character.upper(), character) if character.isascii() and character.isalpha() else character for character in text)
+
+
+def normalize_small_caps(text: str) -> str:
+    return "".join(SC_REVERSE_MAP.get(character, character) for character in text)
+
+
+def small_caps_html(html: str) -> str:
+    output = []
+    in_tag = False
+    literal_tag = None
+    index = 0
+    while index < len(html):
+        lower_rest = html[index:].lower()
+        if not in_tag and lower_rest.startswith("<code"):
+            literal_tag = "code"
+        elif not in_tag and lower_rest.startswith("<pre"):
+            literal_tag = "pre"
+        elif not in_tag and lower_rest.startswith("</code>"):
+            literal_tag = None
+        elif not in_tag and lower_rest.startswith("</pre>"):
+            literal_tag = None
+        character = html[index]
+        if character == "<":
+            in_tag = True
+            output.append(character)
+        elif character == ">":
+            in_tag = False
+            output.append(character)
+        elif in_tag or literal_tag:
+            output.append(character)
+        else:
+            output.append(SC_MAP.get(character.upper(), character) if character.isascii() and character.isalpha() else character)
+        index += 1
+    return "".join(output)
+
+
+class SmallCapsBot(ExtBot):
+    async def send_message(self, chat_id, text, *args, **kwargs):
+        return await super().send_message(chat_id, small_caps_html(text), *args, **kwargs)
+
+    async def edit_message_text(self, text, *args, **kwargs):
+        return await super().edit_message_text(small_caps_html(text), *args, **kwargs)
 
 DASHBOARD_ACTIONS = {
     "CHECK SERVICES", "PROFILE", "BUY CREDIT", "MINI APP",
@@ -181,7 +236,7 @@ def styled_button(text: str, data: str, style: str = "primary", emoji: str = "")
     emoji_id = PREMIUM_EMOJI_ID or EMOJI_IDS.get(emoji, "")
     if emoji_id:
         extras["icon_custom_emoji_id"] = emoji_id
-    return InlineKeyboardButton(text, callback_data=data, api_kwargs=extras)
+    return InlineKeyboardButton(small_caps_text(text), callback_data=data, api_kwargs=extras)
 
 
 def styled_url_button(text: str, url: str, style: str = "primary", emoji: str = "") -> InlineKeyboardButton:
@@ -189,12 +244,12 @@ def styled_url_button(text: str, url: str, style: str = "primary", emoji: str = 
     emoji_id = PREMIUM_EMOJI_ID or EMOJI_IDS.get(emoji, "")
     if emoji_id:
         extras["icon_custom_emoji_id"] = emoji_id
-    return InlineKeyboardButton(text, url=url, api_kwargs=extras)
+    return InlineKeyboardButton(small_caps_text(text), url=url, api_kwargs=extras)
 
 
 def dashboard_button(text: str, style: str, emoji: str) -> KeyboardButton:
     return KeyboardButton(
-        text,
+        small_caps_text(text),
         api_kwargs={"style": style, "icon_custom_emoji_id": EMOJI_IDS[emoji]},
     )
 
@@ -444,8 +499,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
     remember_user(update)
     text = update.message.text.strip()
+    dashboard_action = normalize_small_caps(text).upper()
 
-    if text in DASHBOARD_ACTIONS:
+    if dashboard_action in DASHBOARD_ACTIONS:
+        text = dashboard_action
         context.user_data.pop("flow", None)
         context.user_data.pop("service", None)
         if text == "CHECK SERVICES":
@@ -1125,7 +1182,7 @@ def notify_user(user_id: int, html: str) -> None:
     try:
         httpx.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": user_id, "text": html, "parse_mode": "HTML"},
+            json={"chat_id": user_id, "text": small_caps_html(html), "parse_mode": "HTML"},
             timeout=8,
         ).raise_for_status()
     except httpx.HTTPError:
@@ -1141,7 +1198,7 @@ def main() -> None:
     if not token:
         raise RuntimeError("BOT_TOKEN environment variable is required")
     init_db()
-    application = Application.builder().token(token).build()
+    application = Application.builder().bot(SmallCapsBot(token=token)).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("admin", admin))
