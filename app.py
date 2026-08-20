@@ -38,7 +38,7 @@ RATE_LIMIT_SECONDS = 5
 DB_PATH = os.getenv("DATABASE_PATH", "checkerbot.db")
 WEB_PORT = int(os.getenv("PORT", "8080"))
 PREMIUM_EMOJI_ID = os.getenv("PREMIUM_EMOJI_ID", "").strip()
-BOT_USERNAME = os.getenv("BOT_USERNAME", "").strip().lstrip("@")
+BOT_USERNAME = os.getenv("BOT_USERNAME", "AnneBellaCheckerBot").strip().lstrip("@")
 SUPPORT_URL = os.getenv("SUPPORT_URL", "https://t.me/annebella").strip()
 SIGNUP_CREDITS = int(os.getenv("SIGNUP_CREDITS", "150"))
 REFERRAL_CREDITS = int(os.getenv("REFERRAL_CREDITS", "20"))
@@ -574,6 +574,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"{premium('◆', 'lightning')} <b>BOT READY! USE THE DASHBOARD BUTTONS BELOW.</b>",
         parse_mode=ParseMode.HTML,
     )
+    launch_action = context.args[0] if context.args and context.args[0] in {"check", "buy_credit", "support"} else None
+    if launch_action == "check":
+        await update.message.reply_text(
+            f"{premium('◆', 'search')} <b>CHECKER SERVICE DIRECTORY</b>\n{divider()}\n\nSelect an application below. Each determined lookup costs <b>{CHECK_COST} credits</b>.",
+            parse_mode=ParseMode.HTML, reply_markup=menu(),
+        )
+    elif launch_action == "buy_credit":
+        await update.message.reply_text(
+            f"{premium('◆', 'buy')} <b>ANNEBELLA CREDIT STORE</b>\n{divider()}\n\nSelect a verified credit package to continue with UPI or USDT.",
+            parse_mode=ParseMode.HTML, reply_markup=buy_packages_keyboard(),
+        )
+    elif launch_action == "support":
+        context.user_data["flow"] = "support"
+        await update.message.reply_text(
+            f"{premium('◆', 'support')} <b>ANNEBELLA PRIORITY SUPPORT</b>\n{divider()}\n\nSend one complete message describing the affected service, approximate time and displayed error.",
+            parse_mode=ParseMode.HTML,
+        )
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1174,7 +1191,7 @@ def miniapp():
         return render_template("miniapp.html", bot_name=BOT_NAME, error="This secure Mini App link is invalid or expired."), 403
     with closing(db_connect()) as db:
         user = db.execute(
-            "SELECT first_name, username, credits, referral_count, mini_app_unlocked FROM users WHERE telegram_id = ?",
+            "SELECT first_name, username, credits, referral_count, mini_app_unlocked, first_seen FROM users WHERE telegram_id = ?",
             (user_id,),
         ).fetchone()
         searches = db.execute("SELECT COUNT(*) FROM searches WHERE telegram_id = ?", (user_id,)).fetchone()[0]
@@ -1187,6 +1204,8 @@ def miniapp():
     return render_template(
         "miniapp.html", bot_name=BOT_NAME, error=None, user_id=user_id, user=user,
         searches=searches, recent=recent, services=SERVICES,
+        check_cost=CHECK_COST, referral_credits=REFERRAL_CREDITS, mini_app_cost=MINI_APP_COST,
+        bot_username=BOT_USERNAME,
     )
 
 
@@ -1218,10 +1237,25 @@ def admin_panel():
         search_count = db.execute("SELECT COUNT(*) FROM searches").fetchone()[0]
         total_credits = db.execute("SELECT COALESCE(SUM(credits), 0) FROM users").fetchone()[0]
         pending_count = db.execute("SELECT COUNT(*) FROM payment_requests WHERE status = 'pending'").fetchone()[0]
+        active_today = db.execute("SELECT COUNT(*) FROM users WHERE last_seen >= ?", (int(time.time()) - 86400,)).fetchone()[0]
+        banned_count = db.execute("SELECT COUNT(*) FROM users WHERE banned = 1").fetchone()[0]
+        open_tickets = db.execute("SELECT COUNT(*) FROM support_tickets WHERE status = 'open'").fetchone()[0]
+        unlocked_count = db.execute("SELECT COUNT(*) FROM users WHERE mini_app_unlocked = 1").fetchone()[0]
+        enabled_channel_count = db.execute("SELECT COUNT(*) FROM channels WHERE enabled = 1").fetchone()[0]
+        approved_revenue = db.execute("SELECT COALESCE(SUM(amount_inr), 0) FROM payment_requests WHERE status = 'approved'").fetchone()[0]
         payments = db.execute("SELECT id, telegram_id, credits, amount_inr, reference, status, created_at FROM payment_requests ORDER BY id DESC LIMIT 50").fetchall()
         tickets = db.execute("SELECT id, telegram_id, message, status, created_at FROM support_tickets ORDER BY id DESC LIMIT 50").fetchall()
         gift_cards = db.execute("SELECT id, code, credits, used_by, used_at, created_at FROM gift_cards ORDER BY id DESC LIMIT 100").fetchall()
-    return render_template("admin.html", bot_name=BOT_NAME, users=users, channels=channels, user_count=user_count, search_count=search_count, total_credits=total_credits, pending_count=pending_count, payments=payments, tickets=tickets, gift_cards=gift_cards)
+        recent_searches = db.execute("SELECT telegram_id, service, phone_suffix, searched_at FROM searches ORDER BY id DESC LIMIT 20").fetchall()
+        transactions = db.execute("SELECT telegram_id, amount, kind, note, created_at FROM credit_transactions ORDER BY id DESC LIMIT 25").fetchall()
+    return render_template(
+        "admin.html", bot_name=BOT_NAME, users=users, channels=channels, user_count=user_count,
+        search_count=search_count, total_credits=total_credits, pending_count=pending_count,
+        payments=payments, tickets=tickets, gift_cards=gift_cards, active_today=active_today,
+        banned_count=banned_count, open_tickets=open_tickets, unlocked_count=unlocked_count,
+        approved_revenue=approved_revenue, recent_searches=recent_searches, transactions=transactions,
+        enabled_channel_count=enabled_channel_count,
+    )
 
 
 @web.post("/admin/channels")
