@@ -1392,6 +1392,13 @@ def run_web() -> None:
     web.run(host="0.0.0.0", port=WEB_PORT, debug=False, use_reloader=False)
 
 
+async def telegram_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    error = context.error
+    if isinstance(error, BadRequest) and "message is not modified" in str(error).lower():
+        return
+    logger.error("Unhandled Telegram update error: %s", error, exc_info=error)
+
+
 def main() -> None:
     token = os.getenv("BOT_TOKEN")
     if not token:
@@ -1404,6 +1411,7 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(callbacks))
     application.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, handle_payment_proof))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_error_handler(telegram_error_handler)
     threading.Thread(target=run_web, daemon=True).start()
     logger.info("Starting %s", BOT_NAME)
     application.run_polling(allowed_updates=Update.ALL_TYPES)
