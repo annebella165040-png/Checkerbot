@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ bot_name }} · Admin Login</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at top,#243b6b,#090d18 60%);font:15px Inter,system-ui;color:#edf4ff}.card{width:min(92vw,390px);padding:34px;border:1px solid #ffffff22;border-radius:24px;background:#10182bdd;box-shadow:0 24px 70px #0008;backdrop-filter:blur(20px)}.logo{width:62px;height:62px;display:grid;place-items:center;border-radius:20px;background:linear-gradient(135deg,#5b8cff,#9b5cff);font-size:30px;box-shadow:0 12px 32px #6c63ff55}h1{margin:22px 0 8px;font-size:24px}p{color:#9dacc8;margin:0 0 24px}input,button{width:100%;border:0;border-radius:13px;padding:14px;font:inherit}input{background:#ffffff0d;border:1px solid #ffffff1f;color:white;outline:none;margin-bottom:12px}button{background:linear-gradient(90deg,#527dff,#8f5cff);font-weight:800;color:white;cursor:pointer}.flash{background:#ff527722;color:#ff9aaf;padding:10px;border-radius:10px;margin-bottom:12px}
+  </style>
+</head>
+<body><form class="card" method="post"><div class="logo">✦</div><h1>{{ bot_name }}</h1><p>Secure administrator access</p>{% for message in get_flashed_messages() %}<div class="flash">{{ message }}</div>{% endfor %}<input type="password" name="password" placeholder="Admin password" required autofocus><button type="submit">Open Dashboard</button></form></body>
+</html>
