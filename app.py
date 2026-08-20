@@ -164,6 +164,8 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 web = Flask(__name__)
 web.secret_key = os.getenv("SESSION_SECRET", os.urandom(32))
+web.jinja_env.comment_start_string = "{##"
+web.jinja_env.comment_end_string = "##}"
 
 
 def db_connect():
