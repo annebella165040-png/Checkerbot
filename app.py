@@ -455,11 +455,47 @@ def user_summary(user_id: int):
 
 
 def mini_app_link(user_id: int) -> str | None:
-    base_url = os.getenv("MINI_APP_URL", os.getenv("PUBLIC_APP_URL", "")).strip().rstrip("/")
+    base_url = os.getenv(
+        "MINI_APP_URL",
+        os.getenv("PUBLIC_APP_URL", "https://web-production-b80e9.up.railway.app/miniapp"),
+    ).strip().rstrip("/")
     if not base_url:
         return None
     token = URLSafeTimedSerializer(web.secret_key).dumps({"user_id": user_id}, salt="mini-app")
-    return f"{base_url}/miniapp?token={token}"
+    path = "" if base_url.endswith("/miniapp") else "/miniapp"
+    return f"{base_url}{path}?token={token}"
+
+
+def verify_mini_app_token(token: str) -> int | None:
+    try:
+        payload = URLSafeTimedSerializer(web.secret_key).loads(token, salt="mini-app", max_age=86400 * 30)
+        return int(payload["user_id"])
+    except (BadSignature, SignatureExpired, KeyError, TypeError, ValueError):
+        return None
+
+
+def describe_phone(number: str):
+    parsed = phonenumbers.parse(number, None)
+    possible = phonenumbers.is_possible_number(parsed)
+    valid = phonenumbers.is_valid_number(parsed)
+    e164 = phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
+    region = geocoder.description_for_number(parsed, "en") or "Unknown"
+    original_carrier = carrier.name_for_number(parsed, "en") or "Unknown"
+    zones = ", ".join(timezone.time_zones_for_number(parsed)) or "Unknown"
+    type_names = {
+        phonenumbers.PhoneNumberType.MOBILE: "Mobile",
+        phonenumbers.PhoneNumberType.FIXED_LINE: "Landline",
+        phonenumbers.PhoneNumberType.FIXED_LINE_OR_MOBILE: "Landline or mobile",
+        phonenumbers.PhoneNumberType.TOLL_FREE: "Toll-free",
+        phonenumbers.PhoneNumberType.PREMIUM_RATE: "Premium-rate",
+        phonenumbers.PhoneNumberType.VOIP: "VoIP",
+        phonenumbers.PhoneNumberType.PERSONAL_NUMBER: "Personal number",
+        phonenumbers.PhoneNumberType.PAGER: "Pager",
+        phonenumbers.PhoneNumberType.UAN: "UAN",
+        phonenumbers.PhoneNumberType.VOICEMAIL: "Voicemail",
+    }
+    line_type = type_names.get(phonenumbers.number_type(parsed), "Unknown")
+    return possible, valid, e164, region, original_carrier, zones, line_type
 
 
 def profile_text(user_id: int) -> str:
@@ -890,26 +926,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     try:
-        parsed = phonenumbers.parse(normalized, None)
-        possible = phonenumbers.is_possible_number(parsed)
-        valid = phonenumbers.is_valid_number(parsed)
-        e164 = phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
-        region = geocoder.description_for_number(parsed, "en") or "Unknown"
-        original_carrier = carrier.name_for_number(parsed, "en") or "Unknown"
-        zones = ", ".join(timezone.time_zones_for_number(parsed)) or "Unknown"
-        type_names = {
-            phonenumbers.PhoneNumberType.MOBILE: "Mobile",
-            phonenumbers.PhoneNumberType.FIXED_LINE: "Landline",
-            phonenumbers.PhoneNumberType.FIXED_LINE_OR_MOBILE: "Landline or mobile",
-            phonenumbers.PhoneNumberType.TOLL_FREE: "Toll-free",
-            phonenumbers.PhoneNumberType.PREMIUM_RATE: "Premium-rate",
-            phonenumbers.PhoneNumberType.VOIP: "VoIP",
-            phonenumbers.PhoneNumberType.PERSONAL_NUMBER: "Personal number",
-            phonenumbers.PhoneNumberType.PAGER: "Pager",
-            phonenumbers.PhoneNumberType.UAN: "UAN",
-            phonenumbers.PhoneNumberType.VOICEMAIL: "Voicemail",
-        }
-        line_type = type_names.get(phonenumbers.number_type(parsed), "Unknown")
+        possible, valid, e164, region, original_carrier, zones, line_type = describe_phone(normalized)
     except phonenumbers.NumberParseException:
         await update.message.reply_text(f"{premium('◆', 'support')} <b>NUMBER PARSING FAILED</b>", parse_mode=ParseMode.HTML)
         return
@@ -1021,6 +1038,43 @@ async def registration_lookup(service: str, number: str):
             payload = response.json()
     except (httpx.HTTPError, ValueError) as exc:
         logger.warning("Registration lookup unavailable: %s", type(exc).__name__)
+        return None, "Checker service temporarily unavailable"
+
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    registered = data.get("is_registered", data.get("registered"))
+    if isinstance(registered, bool):
+        return registered, None
+    if isinstance(registered, str) and registered.lower() in {"true", "false"}:
+        return registered.lower() == "true", None
+    status = str(data.get("status", data.get("result", ""))).strip().lower()
+    if status in {"registered", "found", "active", "true", "yes"}:
+        return True, None
+    if status in {"not_registered", "not registered", "not-found", "not_found", "false", "no"}:
+        return False, None
+    return None, "Provider returned an undetermined result"
+
+
+def registration_lookup_sync(service: str, number: str):
+    api_url = os.getenv("CHECKER_API_URL", "https://superassets.in").strip().rstrip("/")
+    api_key = os.getenv("CHECKER_API_KEY", "").strip()
+    if not api_key:
+        return None, "Checker API is not configured"
+    service_id = SERVICE_IDS.get(service, service.lower())
+    try:
+        response = httpx.post(
+            f"{api_url}/api/v1/check",
+            json={"service": service_id, "number": number.lstrip("+")},
+            headers={"X-API-Key": api_key},
+            timeout=12,
+        )
+        if response.status_code in {401, 403}:
+            return None, "Checker API key is invalid or revoked"
+        if response.status_code == 429:
+            return None, "Rate limit reached; try again shortly"
+        response.raise_for_status()
+        payload = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("Mini App registration lookup unavailable: %s", type(exc).__name__)
         return None, "Checker service temporarily unavailable"
 
     data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
@@ -1250,10 +1304,8 @@ def healthz():
 @web.route("/miniapp")
 def miniapp():
     token = request.args.get("token", "")
-    try:
-        payload = URLSafeTimedSerializer(web.secret_key).loads(token, salt="mini-app", max_age=86400 * 30)
-        user_id = int(payload["user_id"])
-    except (BadSignature, SignatureExpired, KeyError, TypeError, ValueError):
+    user_id = verify_mini_app_token(token)
+    if user_id is None:
         return render_template("miniapp.html", bot_name=BOT_NAME, error="This secure Mini App link is invalid or expired."), 403
     with closing(db_connect()) as db:
         user = db.execute(
@@ -1271,8 +1323,81 @@ def miniapp():
         "miniapp.html", bot_name=BOT_NAME, error=None, user_id=user_id, user=user,
         searches=searches, recent=recent, services=SERVICES,
         check_cost=CHECK_COST, referral_credits=REFERRAL_CREDITS, mini_app_cost=MINI_APP_COST,
-        bot_username=BOT_USERNAME,
+        bot_username=BOT_USERNAME, token=token,
     )
+
+
+@web.post("/miniapp/api/check")
+def miniapp_check():
+    data = request.get_json(silent=True) or {}
+    token = str(data.get("token", ""))
+    user_id = verify_mini_app_token(token)
+    if user_id is None:
+        return {"ok": False, "error": "Mini App session expired. Open a fresh link from Telegram."}, 403
+
+    service = str(data.get("service", "")).strip()
+    normalized = re.sub(r"[\s()-]", "", str(data.get("number", "")))
+    if service not in SERVICES:
+        return {"ok": False, "error": "Select a valid checker service."}, 400
+    if not PHONE_RE.fullmatch(normalized):
+        return {"ok": False, "error": "Enter 8-15 digits, optionally starting with +."}, 400
+
+    with closing(db_connect()) as db:
+        user = db.execute(
+            "SELECT credits, banned, mini_app_unlocked FROM users WHERE telegram_id = ?",
+            (user_id,),
+        ).fetchone()
+        if not user or user[1]:
+            return {"ok": False, "error": "Account is not active."}, 403
+        if not user[2]:
+            return {"ok": False, "error": "Mini App access is locked for this account."}, 403
+        if user[0] < CHECK_COST:
+            return {"ok": False, "error": f"Insufficient credits. This check requires {CHECK_COST} credits."}, 402
+
+    try:
+        _possible, _valid, e164, region, original_carrier, zones, line_type = describe_phone(normalized)
+    except phonenumbers.NumberParseException:
+        return {"ok": False, "error": "Number parsing failed."}, 400
+
+    checker_result, checker_error = registration_lookup_sync(service, e164)
+    charged = checker_error is None
+    suffix = normalized[-4:]
+    now = int(time.time())
+    with closing(db_connect()) as db:
+        db.execute(
+            "INSERT INTO searches (telegram_id, service, phone_suffix, searched_at) VALUES (?, ?, ?, ?)",
+            (user_id, service, suffix, now),
+        )
+        if charged:
+            db.execute("UPDATE users SET credits = credits - ?, last_seen = ? WHERE telegram_id = ?", (CHECK_COST, now, user_id))
+            db.execute(
+                "INSERT INTO credit_transactions (telegram_id, amount, kind, note, created_at) VALUES (?, ?, 'lookup', ?, ?)",
+                (user_id, -CHECK_COST, f"Mini App {service}", now),
+            )
+        else:
+            db.execute("UPDATE users SET last_seen = ? WHERE telegram_id = ?", (now, user_id))
+        credits = db.execute("SELECT credits FROM users WHERE telegram_id = ?", (user_id,)).fetchone()[0]
+        recent = db.execute(
+            "SELECT service, phone_suffix, searched_at FROM searches WHERE telegram_id = ? ORDER BY id DESC LIMIT 10",
+            (user_id,),
+        ).fetchall()
+        db.commit()
+
+    status = "temporarily_unavailable" if checker_error else ("registered" if checker_result else "not_registered")
+    return {
+        "ok": True,
+        "service": service,
+        "numberSuffix": suffix,
+        "status": status,
+        "statusText": checker_error or ("REGISTERED" if checker_result else "NOT REGISTERED"),
+        "charged": CHECK_COST if charged else 0,
+        "credits": credits,
+        "region": region,
+        "numberType": line_type,
+        "carrier": original_carrier,
+        "timezone": zones,
+        "recent": [{"service": row[0], "suffix": row[1], "at": row[2]} for row in recent],
+    }
 
 
 @web.route("/admin/login", methods=["GET", "POST"])
@@ -1320,7 +1445,7 @@ def admin_panel():
         payments=payments, tickets=tickets, gift_cards=gift_cards, active_today=active_today,
         banned_count=banned_count, open_tickets=open_tickets, unlocked_count=unlocked_count,
         approved_revenue=approved_revenue, recent_searches=recent_searches, transactions=transactions,
-        enabled_channel_count=enabled_channel_count,
+        enabled_channel_count=enabled_channel_count, services=SERVICES, check_cost=CHECK_COST,
     )
 
 

@@ -64,8 +64,9 @@ Telegram's current Bot API supports `style` and `icon_custom_emoji_id` on button
 1. Click **Deploy on Railway** above, choose **Deploy from GitHub repo**, and select `annebella165040-png/Checkerbot`.
 2. Add every required secret from `.env.example`, especially `BOT_TOKEN`, `CHECKER_API_KEY`, `ADMIN_IDS`, `ADMIN_PASSWORD`, and `SESSION_SECRET`.
 3. Generate a public domain in **Settings → Networking**.
-4. Set both `PUBLIC_APP_URL` and `MINI_APP_URL` to that HTTPS domain, without a trailing slash.
-5. Redeploy, then confirm `https://your-domain/healthz` returns `{"ok": true, ...}`.
+4. Set `PUBLIC_APP_URL` to the Railway domain root, for example `https://web-production-b80e9.up.railway.app`.
+5. Set `MINI_APP_URL` to the Mini App route, for example `https://web-production-b80e9.up.railway.app/miniapp`.
+6. Redeploy, then confirm `https://your-domain/healthz` returns `{"ok": true, ...}`.
 
 For persistent users, credits and history, attach a Railway volume and set `DATABASE_PATH` to a file inside its mount path, for example `/data/checkerbot.db`. Run only one replica because Telegram long polling permits one active consumer for a bot token.
 

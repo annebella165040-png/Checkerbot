@@ -13,6 +13,8 @@
     "CHECKER_API_URL": {"description": "Registration checker provider base URL", "value": "https://superassets.in"},
     "CHECKER_API_KEY": {"description": "Registration checker provider API key", "required": true},
     "SUPPORT_URL": {"description": "Telegram support chat URL", "value": "https://t.me/annebella"},
+    "PUBLIC_APP_URL": {"description": "Public web app root URL", "value": "https://web-production-b80e9.up.railway.app"},
+    "MINI_APP_URL": {"description": "Public Mini App URL", "value": "https://web-production-b80e9.up.railway.app/miniapp"},
     "SIGNUP_CREDITS": {"value": "150"},
     "REFERRAL_CREDITS": {"value": "20"},
     "CHECK_COST": {"value": "5"},
