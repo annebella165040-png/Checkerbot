@@ -15,7 +15,7 @@ import httpx
 import phonenumbers
 from phonenumbers import carrier, geocoder, timezone
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, Update, WebAppInfo
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, Update
 from telegram.constants import ChatMemberStatus, ChatType, ParseMode
 from telegram.error import BadRequest
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, ExtBot, MessageHandler, filters
@@ -761,7 +761,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             row = user_summary(update.effective_user.id)
             if row[5]:
                 link = mini_app_link(update.effective_user.id)
-                markup = InlineKeyboardMarkup([[InlineKeyboardButton("OPEN ANNEBELLA MINI APP", web_app=WebAppInfo(url=link))]]) if link else None
+                markup = InlineKeyboardMarkup([[styled_url_button("OPEN ANNEBELLA MINI APP", link, "success", "miniapp")]]) if link else None
                 message = "Mini App access is active. Use the secure launch button below." if link else "Mini App access is active, but MINI_APP_URL is not configured on the host."
             else:
                 markup = InlineKeyboardMarkup([[styled_button(f"UNLOCK FOR {MINI_APP_COST} CREDITS", "mini_unlock", "success", "miniapp")]])
@@ -1220,7 +1220,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 db.commit()
                 unlocked = True
         link = mini_app_link(update.effective_user.id)
-        markup = InlineKeyboardMarkup([[InlineKeyboardButton("OPEN ANNEBELLA MINI APP", web_app=WebAppInfo(url=link))]]) if link else None
+        markup = InlineKeyboardMarkup([[styled_url_button("OPEN ANNEBELLA MINI APP", link, "success", "miniapp")]]) if link else None
         await query.edit_message_text(
             f"{premium('◆', 'miniapp')} <b>MINI APP ACCESS ACTIVATED</b>\n\n"
             "Permanent access is now linked to your Telegram account. " + ("Use the secure launch button below." if link else "Configure MINI_APP_URL on the host to display the launch button."),
@@ -1304,9 +1304,19 @@ def healthz():
 @web.route("/miniapp")
 def miniapp():
     token = request.args.get("token", "")
+
+    def locked_miniapp(message: str, status: int = 403):
+        guest = ("Guest", None, 0, 0, 0, int(time.time()))
+        return render_template(
+            "miniapp.html", bot_name=BOT_NAME, error=message, user_id="LOCKED", user=guest,
+            searches=0, recent=[], services=SERVICES, check_cost=CHECK_COST,
+            referral_credits=REFERRAL_CREDITS, mini_app_cost=MINI_APP_COST,
+            bot_username=BOT_USERNAME, token="",
+        ), status
+
     user_id = verify_mini_app_token(token)
     if user_id is None:
-        return render_template("miniapp.html", bot_name=BOT_NAME, error="This secure Mini App link is invalid or expired."), 403
+        return locked_miniapp("Open Mini App from the Telegram bot after unlocking access.")
     with closing(db_connect()) as db:
         user = db.execute(
             "SELECT first_name, username, credits, referral_count, mini_app_unlocked, first_seen FROM users WHERE telegram_id = ?",
@@ -1318,7 +1328,7 @@ def miniapp():
             (user_id,),
         ).fetchall()
     if not user or not user[4]:
-        return render_template("miniapp.html", bot_name=BOT_NAME, error="Mini App access is not active for this account."), 403
+        return locked_miniapp("Mini App access is not active for this Telegram account.")
     return render_template(
         "miniapp.html", bot_name=BOT_NAME, error=None, user_id=user_id, user=user,
         searches=searches, recent=recent, services=SERVICES,
