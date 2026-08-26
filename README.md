@@ -10,6 +10,7 @@ A Telegram registration checker inspired by the supplied reference. Users select
 ## Features
 
 - Branded `/start` flow with an inline-only 18-service checker directory
+- Search Service directory indexing 165 public/API platforms without crowding the checker buttons
 - Persistent premium-ID dashboard keyboard for Profile, Credits, Mini App, Gift Card, Referrals, Guide and Support
 - International mobile-number validation
 - Per-user rate limiting

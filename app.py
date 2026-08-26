@@ -33,6 +33,173 @@ SERVICE_IDS = {
     "MyJio": "jio",
     "HabitYoga": "habuildyoga",
 }
+API_DIRECTORY = [
+    ("Instagram", "Social / Meta professional account API"),
+    ("Facebook", "Social graph, pages, ads and login API"),
+    ("WhatsApp Business", "Business messaging Cloud API"),
+    ("Messenger", "Meta messaging and page inbox API"),
+    ("Threads", "Meta Threads publishing and profile API"),
+    ("X / Twitter", "Posts, users, trends and OAuth API"),
+    ("YouTube", "Videos, channels, search and analytics API"),
+    ("TikTok", "Login, content and business APIs"),
+    ("Reddit", "Posts, comments, subreddit and OAuth API"),
+    ("LinkedIn", "Sign-in, profile, share and business APIs"),
+    ("Discord", "Bot, OAuth, guild and interaction API"),
+    ("Snapchat", "Login Kit, Bitmoji and marketing API"),
+    ("Pinterest", "Pins, boards and ads API"),
+    ("Tumblr", "Blogging and post API"),
+    ("Mastodon", "Open social network API"),
+    ("Bluesky", "AT Protocol social API"),
+    ("Twitch", "Streams, channels and clips API"),
+    ("Spotify", "Music catalog and account OAuth API"),
+    ("SoundCloud", "Audio and creator API"),
+    ("Vimeo", "Video upload and metadata API"),
+    ("Telegram", "Bot API and MTProto platform API"),
+    ("LINE", "Messaging and login API"),
+    ("Viber", "Bot messaging API"),
+    ("WeChat Open Platform", "Login and mini-program APIs"),
+    ("KakaoTalk", "Kakao login and messaging API"),
+    ("Google Search", "Search/programmable search APIs"),
+    ("Gmail", "Mailbox API with user OAuth"),
+    ("Google Drive", "File storage API"),
+    ("Google Calendar", "Calendar and event API"),
+    ("Google Maps", "Maps, routes and geocoding API"),
+    ("Google Places", "Places and business discovery API"),
+    ("Google Search Console", "Site performance API"),
+    ("Google Analytics", "Analytics reporting API"),
+    ("Google Ads", "Advertising management API"),
+    ("Google Translate", "Translation API"),
+    ("Microsoft Graph", "Microsoft 365 unified API"),
+    ("Outlook", "Mail and calendar through Graph API"),
+    ("OneDrive", "Cloud file storage API"),
+    ("Microsoft Teams", "Teams app and collaboration API"),
+    ("SharePoint", "Site and document API"),
+    ("Azure", "Cloud resource management APIs"),
+    ("GitHub", "Repository, issue and action APIs"),
+    ("GitLab", "Repository and DevOps API"),
+    ("Bitbucket", "Repository and workspace API"),
+    ("Slack", "Workspace bot and messaging API"),
+    ("Notion", "Workspace database/page API"),
+    ("Trello", "Board, card and list API"),
+    ("Asana", "Task and project API"),
+    ("ClickUp", "Task and workspace API"),
+    ("Jira", "Issue and project API"),
+    ("Confluence", "Knowledge base API"),
+    ("Monday.com", "Work management GraphQL API"),
+    ("Airtable", "Table/database API"),
+    ("Todoist", "Task management API"),
+    ("Dropbox", "Cloud file API"),
+    ("Box", "Enterprise file API"),
+    ("Canva", "Design and app APIs"),
+    ("Figma", "Design file and plugin API"),
+    ("Miro", "Whiteboard API"),
+    ("Zoom", "Meetings and webinar API"),
+    ("Calendly", "Scheduling API"),
+    ("DocuSign", "E-signature API"),
+    ("Adobe", "Creative/document APIs"),
+    ("WordPress", "CMS REST API"),
+    ("Shopify", "Storefront and admin APIs"),
+    ("WooCommerce", "WordPress commerce API"),
+    ("Amazon Selling Partner", "Seller catalog/order API"),
+    ("Amazon Ads", "Advertising API"),
+    ("eBay", "Marketplace and inventory API"),
+    ("Etsy", "Marketplace listing API"),
+    ("Walmart", "Marketplace and affiliate APIs"),
+    ("Best Buy", "Product catalog API"),
+    ("Flipkart Affiliate", "Affiliate product API"),
+    ("BigCommerce", "Commerce admin API"),
+    ("Adobe Commerce / Magento", "Commerce API"),
+    ("Square", "Payments and commerce API"),
+    ("Stripe", "Payments and billing API"),
+    ("PayPal", "Payments and checkout API"),
+    ("Razorpay", "Indian payments API"),
+    ("Paytm", "Payments and wallet API"),
+    ("Cashfree", "Payments and payout API"),
+    ("PhonePe", "Payments API"),
+    ("Coinbase", "Crypto exchange/account API"),
+    ("Binance", "Crypto exchange API"),
+    ("CoinMarketCap", "Crypto market data API"),
+    ("CoinGecko", "Crypto market data API"),
+    ("Yahoo Finance", "Market data APIs"),
+    ("Alpha Vantage", "Stock and forex data API"),
+    ("Plaid", "Bank account connectivity API"),
+    ("Alpaca", "Trading and market data API"),
+    ("Polygon.io", "Market data API"),
+    ("Finnhub", "Financial market data API"),
+    ("Twelve Data", "Market data API"),
+    ("Open Exchange Rates", "FX rates API"),
+    ("Fixer", "Currency conversion API"),
+    ("Wise", "International transfer API"),
+    ("RazorpayX", "Business banking/payout API"),
+    ("PayU", "Payment gateway API"),
+    ("CCAvenue", "Payment gateway API"),
+    ("Instamojo", "Payment links and orders API"),
+    ("OpenWeather", "Weather data API"),
+    ("WeatherAPI", "Weather forecast API"),
+    ("AccuWeather", "Weather forecast API"),
+    ("HERE Maps", "Maps and routing API"),
+    ("Mapbox", "Maps and geocoding API"),
+    ("TomTom", "Maps and traffic API"),
+    ("OpenStreetMap / Nominatim", "Open geocoding API"),
+    ("Foursquare", "Places and venue API"),
+    ("Yelp", "Business search API"),
+    ("Tripadvisor", "Travel content API"),
+    ("Booking.com", "Partner travel APIs"),
+    ("Expedia", "Partner travel APIs"),
+    ("Amadeus", "Flights and travel API"),
+    ("Skyscanner", "Flight search APIs"),
+    ("Aviationstack", "Flight data API"),
+    ("Uber", "Rides and delivery APIs"),
+    ("Lyft", "Ride API"),
+    ("Twilio", "SMS, voice and WhatsApp API"),
+    ("Vonage", "SMS and voice API"),
+    ("MessageBird / Bird", "Omnichannel messaging API"),
+    ("Plivo", "SMS and voice API"),
+    ("SendGrid", "Email delivery API"),
+    ("Mailchimp", "Email marketing API"),
+    ("Mailgun", "Email delivery API"),
+    ("Brevo / Sendinblue", "Email and marketing API"),
+    ("Postmark", "Transactional email API"),
+    ("Klaviyo", "Marketing automation API"),
+    ("HubSpot", "CRM and marketing API"),
+    ("Salesforce", "CRM platform API"),
+    ("Zoho", "Business suite APIs"),
+    ("Zendesk", "Support ticket API"),
+    ("Freshdesk", "Support desk API"),
+    ("Intercom", "Customer messaging API"),
+    ("Pipedrive", "Sales CRM API"),
+    ("Salesloft", "Sales engagement API"),
+    ("Apollo.io", "Sales intelligence API"),
+    ("Clearbit", "Company/person enrichment API"),
+    ("Hunter.io", "Email discovery API"),
+    ("Firebase", "Backend, auth and database APIs"),
+    ("Supabase", "Database, auth and storage APIs"),
+    ("Cloudflare", "DNS, CDN and security APIs"),
+    ("AWS", "Cloud service APIs"),
+    ("DigitalOcean", "Cloud hosting API"),
+    ("Heroku", "App hosting API"),
+    ("Railway", "App deployment API"),
+    ("Vercel", "Frontend hosting API"),
+    ("Netlify", "Site hosting API"),
+    ("Sentry", "Error monitoring API"),
+    ("Datadog", "Monitoring and logs API"),
+    ("New Relic", "Observability API"),
+    ("Grafana", "Dashboard and monitoring API"),
+    ("PagerDuty", "Incident response API"),
+    ("Statuspage", "Public status page API"),
+    ("VirusTotal", "URL/file/domain threat intelligence API"),
+    ("urlscan.io", "Website scan and screenshot API"),
+    ("Google Safe Browsing", "Unsafe URL lookup API"),
+    ("Shodan", "Internet-exposed device search API"),
+    ("AbuseIPDB", "IP reputation API"),
+    ("Have I Been Pwned", "Breach lookup API"),
+    ("IPinfo", "IP geolocation/company API"),
+    ("ipapi", "IP geolocation API"),
+    ("WhoisXML API", "WHOIS, DNS and domain intelligence API"),
+    ("SecurityTrails", "DNS and domain intelligence API"),
+    ("BuiltWith", "Website technology lookup API"),
+    ("Wappalyzer", "Website technology lookup API"),
+]
 PHONE_RE = re.compile(r"^\+?[1-9]\d{7,14}$")
 RATE_LIMIT_SECONDS = 5
 DB_PATH = os.getenv("DATABASE_PATH", "checkerbot.db")
@@ -317,7 +484,43 @@ def menu() -> InlineKeyboardMarkup:
         for index, name in enumerate(SERVICES)
     ]
     rows = [buttons[index:index + 3] for index in range(0, len(buttons), 3)]
+    rows.append([styled_button("SEARCH SERVICE", "search_service", "success", "globe")])
     return InlineKeyboardMarkup(rows)
+
+
+def api_service_matches(query: str, limit: int = 25):
+    query = normalize_small_caps(query).strip().lower()
+    if not query:
+        return API_DIRECTORY[:limit]
+    terms = [term for term in re.split(r"[\s,./|+-]+", query) if term]
+    matches = []
+    for name, detail in API_DIRECTORY:
+        haystack = f"{name} {detail}".lower()
+        if all(term in haystack for term in terms):
+            matches.append((name, detail))
+    if not matches:
+        for name, detail in API_DIRECTORY:
+            haystack = f"{name} {detail}".lower()
+            if any(term in haystack for term in terms):
+                matches.append((name, detail))
+    return matches[:limit]
+
+
+def api_service_search_text(query: str = "") -> str:
+    matches = api_service_matches(query)
+    title = "POPULAR API SERVICE DIRECTORY" if not query.strip() else f"API SERVICE SEARCH: {escape(query[:40])}"
+    lines = "\n".join(
+        f"{index}. <b>{escape(name)}</b> - {escape(detail)}"
+        for index, (name, detail) in enumerate(matches, 1)
+    ) or "No matching service found. Try words like <code>social</code>, <code>payment</code>, <code>website</code>, <code>email</code>, <code>discord</code>, or <code>google</code>."
+    return (
+        f"{premium('◆', 'globe')} <b>{title}</b>\n{divider()}\n\n"
+        f"{premium('◆', 'search')} <b>TOTAL INDEXED:</b> {len(API_DIRECTORY)} public/API platforms\n"
+        f"{premium('◆', 'check')} <b>MATCHES SHOWN:</b> {len(matches)}\n\n"
+        f"{lines}\n\n"
+        f"{divider()}\n"
+        f"{premium('◆', 'warn')} <b>NOTE:</b> These are API/service integrations. Phone or email based account-registration checking is not publicly allowed for most big apps. Use official APIs only for permitted lookups, OAuth login, public profile checks, website safety, payments, messaging, or analytics."
+    )
 
 
 def join_menu(channels, joined: list[bool]) -> InlineKeyboardMarkup:
@@ -733,7 +936,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         context.user_data.pop("service", None)
         if text == "CHECK SERVICES":
             await update.message.reply_text(
-                f"{premium('◆', 'search')} <b>CHECKER SERVICE DIRECTORY</b>\n\nSelect an application below. Each determined lookup costs <b>{CHECK_COST} credits</b>.",
+                f"{premium('◆', 'search')} <b>CHECKER SERVICE DIRECTORY</b>\n\n"
+                f"Select an application below. Each determined lookup costs <b>{CHECK_COST} credits</b>.\n\n"
+                f"{premium('◆', 'globe')} Need another platform? Tap <b>SEARCH SERVICE</b> to explore {len(API_DIRECTORY)} API/service integrations.",
                 parse_mode=ParseMode.HTML, reply_markup=menu(),
             )
         elif text == "PROFILE":
@@ -832,6 +1037,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             db.commit()
         context.user_data.pop("flow", None)
         await update.message.reply_text(f"{premium('◆', 'check')} <b>GIFT CARD REDEEMED</b>\n\n<b>{card[1]} credits</b> were added successfully.", parse_mode=ParseMode.HTML, reply_markup=dashboard_keyboard())
+        return
+    if flow == "service_search":
+        await update.message.reply_text(
+            api_service_search_text(text),
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([
+                [styled_button("SEARCH AGAIN", "search_service", "success", "search")],
+                [styled_button("BACK TO CHECKERS", "main_menu", "danger", "back")],
+            ]),
+        )
         return
     if flow == "custom_credit":
         digits = re.sub(r"\D", "", text)
@@ -1241,7 +1456,12 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     elif query.data == "main_menu":
         context.user_data.pop("service", None)
         context.user_data.pop("flow", None)
-        await query.edit_message_text(f"{premium('◆', 'search')} <b>ANNEBELLA CHECKER DIRECTORY</b>\n\nSelect an application below.", parse_mode=ParseMode.HTML, reply_markup=menu())
+        await query.edit_message_text(
+            f"{premium('◆', 'search')} <b>ANNEBELLA CHECKER DIRECTORY</b>\n\n"
+            f"Select an active checker below, or tap <b>SEARCH SERVICE</b> to browse {len(API_DIRECTORY)} API/service integrations.",
+            parse_mode=ParseMode.HTML,
+            reply_markup=menu(),
+        )
     elif query.data == "profile":
         await query.edit_message_text(
             profile_text(update.effective_user.id),
@@ -1274,6 +1494,17 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "Describe the issue in one detailed message. Include the checker, approximate time, and displayed error. Never include private authentication information.",
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup([[styled_url_button("CONTACT DEVELOPER", SUPPORT_URL, "danger", "support")]]),
+        )
+    elif query.data == "search_service":
+        context.user_data["flow"] = "service_search"
+        context.user_data.pop("service", None)
+        await query.edit_message_text(
+            api_service_search_text(),
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([
+                [styled_button("TYPE SERVICE NAME", "search_service", "success", "search")],
+                [styled_button("BACK TO CHECKERS", "main_menu", "danger", "back")],
+            ]),
         )
     elif query.data.startswith("service:"):
         service = query.data.split(":", 1)[1]
