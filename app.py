@@ -615,15 +615,17 @@ def api_service_catalog():
     for name, detail in API_DIRECTORY:
         canonical = canonical_api_service_name(name)
         key = canonical.lower()
+        provider_type = indexed_provider_service_type(canonical, detail)
         if key in catalog:
-            catalog[key]["variants"].append(name)
-            if not catalog[key]["active"] and len(detail) > len(catalog[key]["detail"]):
+            if provider_type:
+                catalog[key]["variants"].append(name)
+            if provider_type and not catalog[key]["active"] and len(detail) > len(catalog[key]["detail"]):
                 catalog[key]["detail"] = detail
-        else:
+        elif provider_type:
             catalog[key] = {
                 "name": canonical,
                 "detail": detail,
-                "active": canonical in SERVICES,
+                "active": False,
                 "variants": [name],
             }
     return list(catalog.values())
@@ -1596,7 +1598,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await update.message.reply_text(
                 f"{premium('◆', 'search')} <b>CHECKER SERVICE DIRECTORY</b>\n\n"
                 f"Select an application below. Each determined lookup costs <b>{CHECK_COST} credits</b>.\n\n"
-                f"{premium('◆', 'globe')} Need another platform? Tap <b>SEARCH SERVICE</b> to explore {len(API_DIRECTORY)} API/service integrations.",
+                f"{premium('◆', 'globe')} Need another platform? Tap <b>SEARCH SERVICE</b> to explore {len(api_service_catalog())} supported services.",
                 parse_mode=ParseMode.HTML, reply_markup=menu(),
             )
         elif text == "PROFILE":
@@ -2238,7 +2240,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         context.user_data.pop("flow", None)
         await query.edit_message_text(
             f"{premium('◆', 'search')} <b>ANNEBELLA CHECKER DIRECTORY</b>\n\n"
-            f"Select an active checker below, or tap <b>SEARCH SERVICE</b> to browse {len(API_DIRECTORY)} API/service integrations.",
+            f"Select an active checker below, or tap <b>SEARCH SERVICE</b> to browse {len(api_service_catalog())} supported services.",
             parse_mode=ParseMode.HTML,
             reply_markup=menu(),
         )
