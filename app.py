@@ -709,13 +709,33 @@ def api_service_input_label(name: str, detail: str) -> str:
     return "ID, username, URL, phone number, email, or official API detail"
 
 
+def api_service_cost(name: str, detail: str) -> int:
+    return CHECK_COST if "live annebella checker available" in detail.lower() else 0
+
+
+def api_service_plain_input_label(name: str, detail: str) -> str:
+    label = api_service_input_label(name, detail)
+    if "email" in label.lower():
+        return "email address"
+    if "phone" in label.lower() or "number" in label.lower():
+        return "mobile number with country code"
+    if "url" in label.lower() or "domain" in label.lower() or "ip" in label.lower():
+        return "URL, domain or IP"
+    return "required lookup detail"
+
+
 def api_service_select_text(name: str, detail: str) -> str:
+    label = api_service_plain_input_label(name, detail)
+    example = (
+        "\nExample: <code>gourav165040@gmail.com</code>" if "email" in label.lower()
+        else "\nExample: <code>+919876543210</code>" if "number" in label.lower() or "mobile" in label.lower()
+        else ""
+    )
     return (
-        f"{premium('◆', 'globe')} <b>{escape(name.upper())} SERVICE SELECTED</b>\n{divider()}\n\n"
-        f"{premium('◆', 'search')} <b>AVAILABLE LOOKUP TYPE:</b>\n{escape(api_service_guidance(name, detail))}\n\n"
-        f"{premium('◆', 'phone')} <b>NOW SEND:</b>\n"
-        f"Send the {escape(api_service_input_label(name, detail))} for this service.\n\n"
-        f"{premium('◆', 'warn')} <b>NOTE:</b> If this service requires official API/OAuth approval, the bot will explain the requirement instead of showing a fake result."
+        f"{premium('◆', 'search')} <b>{escape(name.upper())} CHECKER</b>\n{divider()}\n\n"
+        f"{premium('◆', 'phone')} <b>SEND YOUR {escape(label.upper())}</b>{example}\n\n"
+        f"{premium('◆', 'credits')} <b>LOOKUP CHARGE:</b> {api_service_cost(name, detail)} credits\n"
+        f"{premium('◆', 'warn')} <b>NOTE:</b> Live registered/not-registered result is shown only when this service provider is connected."
     )
 
 
@@ -735,12 +755,12 @@ def api_service_input_result_text(name: str, detail: str, value: str) -> str:
         else "Input accepted. This service can be integrated through its official API or configured provider."
     )
     return (
-        f"{premium('◆', 'search')} <b>{escape(name.upper())} LOOKUP REVIEW</b>\n{divider()}\n\n"
+        f"{premium('◆', 'search')} <b>{escape(name.upper())} CHECKER</b>\n{divider()}\n\n"
         f"{premium('◆', 'profile')} <b>SUBMITTED:</b> <code>{safe_value}</code>\n"
-        f"{premium('◆', 'globe')} <b>SERVICE:</b> {escape(name)}\n\n"
+        f"{premium('◆', 'globe')} <b>SERVICE:</b> {escape(name)}\n"
+        f"{premium('◆', 'credits')} <b>LOOKUP CHARGE:</b> 0 credits\n\n"
         f"{premium('◆', 'check')} <b>CHECKUP STATUS:</b>\n{escape(status)}\n\n"
-        f"{premium('◆', 'help')} <b>WHAT CAN BE CHECKED:</b>\n{escape(api_service_guidance(name, detail))}\n\n"
-        f"{premium('◆', 'warn')} For real registered/not-registered phone checks, use the active checker buttons like Flipkart, Telegram, WhatsApp, etc."
+        f"{premium('◆', 'help')} <b>LOOKUP TYPE:</b>\n{escape(api_service_guidance(name, detail))}"
     )
 
 
