@@ -34,6 +34,53 @@ SERVICE_IDS = {
     "HabitYoga": "habuildyoga",
 }
 API_DIRECTORY = [
+    ("eKYCPro WhatsApp Number Checker", "Phone registration checker provider; service_type ws; send phone number"),
+    ("eKYCPro WhatsApp Avatar Checker", "Phone registration/avatar checker provider; service_type ws_avatar; send phone number"),
+    ("eKYCPro WhatsApp Business Checker", "Phone business registration checker provider; service_type ws_business; send phone number"),
+    ("eKYCPro Telegram Number Checker", "Phone registration checker provider; service_type tg; send phone number"),
+    ("eKYCPro Facebook Phone Checker", "Phone registration checker provider; service_type facebook; send phone number"),
+    ("eKYCPro Instagram Phone Checker", "Phone registration checker provider; service_type instagram; send phone number"),
+    ("eKYCPro Threads Phone Checker", "Phone registration checker provider; service_type threads; send phone number"),
+    ("eKYCPro X Twitter Phone Checker", "Phone registration checker provider; service_type twitter; send phone number"),
+    ("eKYCPro Apple iMessage Checker", "Phone registration checker provider; service_type apple; send phone number"),
+    ("eKYCPro Viber Number Checker", "Phone registration checker provider; service_type viber; send phone number"),
+    ("eKYCPro Zalo Number Checker", "Phone registration checker provider; service_type zalo; send phone number"),
+    ("eKYCPro Amazon Phone Checker", "Phone registration checker provider; service_type amazon; send phone number"),
+    ("eKYCPro Microsoft Phone Checker", "Phone registration checker provider; service_type microsoft; send phone number"),
+    ("eKYCPro BAND Phone Checker", "Phone registration checker provider; service_type band; send phone number"),
+    ("eKYCPro GoTo Phone Checker", "Phone registration checker provider; service_type goto; send phone number"),
+    ("eKYCPro Indiatimes Phone Checker", "Phone registration checker provider; service_type indiatimes; send phone number"),
+    ("eKYCPro HeadHunter Phone Checker", "Phone registration checker provider; service_type hh; send phone number"),
+    ("eKYCPro Facebook Email Checker", "Email registration checker provider; service_type facebook_email; send email address"),
+    ("eKYCPro Instagram Email Checker", "Email registration checker provider; service_type instagram_email; send email address"),
+    ("eKYCPro Apple Email Checker", "Email registration checker provider; service_type apple_email; send email address"),
+    ("eKYCPro Amazon Email Checker", "Email registration checker provider; service_type amazon_email; send email address"),
+    ("eKYCPro Netflix Email Checker", "Email registration checker provider; service_type netflix; send email address"),
+    ("eKYCPro Spotify Email Checker", "Email registration checker provider; service_type spotify_email; send email address"),
+    ("NumberChecker WhatsApp Checker", "Phone registration checker provider; send phone number"),
+    ("NumberChecker Telegram Checker", "Phone registration checker provider; send phone number"),
+    ("NumberChecker Amazon Checker", "Phone registration checker provider; send phone number"),
+    ("NumberChecker iMessage Checker", "Phone registration checker provider; send phone number"),
+    ("NumberChecker Microsoft Checker", "Phone registration checker provider; send phone number"),
+    ("NumberChecker LINE Checker", "Phone registration checker provider; send phone number"),
+    ("NumberChecker Viber Checker", "Phone registration checker provider; send phone number"),
+    ("ProWebLook Flipkart Number Checker", "Phone registration checker provider; send Indian mobile number"),
+    ("WAHA WhatsApp Exists Checker", "WhatsApp session-based phone existence checker; send phone number"),
+    ("Wawp WhatsApp Number Checker", "WhatsApp session-based phone existence checker; send phone number"),
+    ("Whatsscale WhatsApp Number Checker", "WhatsApp session-based phone existence checker; send phone number"),
+    ("Ignorant Amazon Checker", "OSINT-style account presence checker; send phone/email only with authorization"),
+    ("Ignorant Instagram Checker", "OSINT-style account presence checker; send phone/email only with authorization"),
+    ("Ignorant Snapchat Checker", "OSINT-style account presence checker; send phone/email only with authorization"),
+    ("GSMA Number Verification", "Consent-based mobile number/SIM verification API; send verified phone session"),
+    ("Twilio Lookup", "Phone validity, carrier, line type and intelligence API; send phone number"),
+    ("Vonage Number Insight", "Phone validity, carrier, roaming and risk API; send phone number"),
+    ("Abstract Phone Validation", "Phone validation and carrier lookup API; send phone number"),
+    ("NumVerify", "Phone validation and carrier lookup API; send phone number"),
+    ("Neutrino Phone Validate", "Phone validation, location and carrier API; send phone number"),
+    ("Loqate Phone Validation", "Phone validation and international formatting API; send phone number"),
+    ("IPQualityScore Phone Validation", "Phone risk, fraud score and line intelligence API; send phone number"),
+    ("Telesign PhoneID", "Phone type, carrier and risk verification API; send phone number"),
+    ("Veriphone", "Phone validation and carrier lookup API; send phone number"),
     ("Instagram", "Social / Meta professional account API"),
     ("Facebook", "Social graph, pages, ads and login API"),
     ("WhatsApp Business", "Business messaging Cloud API"),
@@ -551,6 +598,10 @@ def api_service_matches(query: str, limit: int = 25):
 
 def api_service_guidance(name: str, detail: str) -> str:
     haystack = f"{name} {detail}".lower()
+    if any(word in haystack for word in {"phone registration checker", "number checker", "phone existence checker", "number verification", "phone validation", "number insight", "phoneid"}):
+        return "Send phone number in international format. Real registered/non-registered output needs configured provider API access and authorized use."
+    if "email registration checker" in haystack:
+        return "Send email address. Real registered/non-registered output needs configured provider API access and authorized use."
     if any(word in haystack for word in {"gmail", "email", "sendgrid", "mailchimp", "mailgun", "brevo", "postmark", "klaviyo"}):
         return "Send authorized email/OAuth access; supports mailbox, message metadata, delivery or campaign lookups."
     if any(word in haystack for word in {"instagram", "facebook", "threads", "linkedin", "snapchat", "x / twitter", "tiktok", "pinterest", "reddit", "tumblr", "mastodon", "bluesky"}):
@@ -574,6 +625,10 @@ def api_service_guidance(name: str, detail: str) -> str:
 
 def api_service_input_label(name: str, detail: str) -> str:
     haystack = f"{name} {detail}".lower()
+    if any(word in haystack for word in {"phone registration checker", "number checker", "phone existence checker", "number verification", "phone validation", "number insight", "phoneid"}):
+        return "phone number with country code, for authorized lookup"
+    if "email registration checker" in haystack:
+        return "email address, for authorized lookup"
     if any(word in haystack for word in {"gmail", "email", "sendgrid", "mailchimp", "mailgun", "brevo", "postmark", "klaviyo"}):
         return "authorized email address or OAuth/API detail"
     if any(word in haystack for word in {"instagram", "facebook", "threads", "linkedin", "snapchat", "x / twitter", "tiktok", "pinterest", "reddit", "tumblr", "mastodon", "bluesky"}):
@@ -601,10 +656,15 @@ def api_service_select_text(name: str, detail: str) -> str:
 
 def api_service_input_result_text(name: str, detail: str, value: str) -> str:
     safe_value = escape(value[:120])
+    provider_registration = any(word in f"{name} {detail}".lower() for word in {
+        "phone registration checker", "email registration checker", "number checker", "phone existence checker", "osint-style account presence",
+    })
     registration_blocked = any(word in f"{name} {detail}".lower() for word in {
         "gmail", "instagram", "facebook", "threads", "linkedin", "snapchat", "x / twitter", "discord", "whatsapp", "telegram", "tiktok",
     })
     status = (
+        "Provider service indexed. Add a valid provider API key in server config to return live registered/not-registered results."
+        if provider_registration else
         "Official API/OAuth access required. Public account-registration checking is not available for this service."
         if registration_blocked
         else "Input accepted. This service can be integrated through its official API or configured provider."
