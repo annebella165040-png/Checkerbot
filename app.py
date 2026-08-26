@@ -697,6 +697,49 @@ def api_service_search_text(query: str = "") -> str:
     )
 
 
+def api_service_full_list_texts() -> list[str]:
+    active_names = ", ".join(escape(name) for name in SERVICES)
+    indexed_lines = [f"{index:03d}. {escape(name)}" for index, (name, _) in enumerate(API_DIRECTORY, 1)]
+    chunks: list[str] = []
+    current: list[str] = []
+    current_len = 0
+    max_body_len = 3000
+    for line in indexed_lines:
+        line_len = len(line) + 1
+        if current and current_len + line_len > max_body_len:
+            chunks.append("\n".join(current))
+            current = []
+            current_len = 0
+        current.append(line)
+        current_len += line_len
+    if current:
+        chunks.append("\n".join(current))
+
+    messages = []
+    total_parts = len(chunks)
+    for part, body in enumerate(chunks, 1):
+        if part == 1:
+            messages.append(
+                f"{premium('?', 'globe')} <b>ALL AVAILABLE SERVICES</b>\n{divider()}\n\n"
+                f"{premium('?', 'check')} <b>LIVE CHECKERS:</b> {len(SERVICES)}\n"
+                f"{active_names}\n\n"
+                f"{premium('?', 'search')} <b>INDEXED API SERVICES:</b> {len(API_DIRECTORY)}\n"
+                f"{premium('?', 'help')} <b>PART:</b> {part}/{total_parts}\n\n"
+                f"{body}\n\n"
+                f"{divider()}\n"
+                f"{premium('?', 'phone')} Type exact service name or keyword, example: <code>gmail</code>, <code>whatsapp</code>, <code>telegram</code>."
+            )
+        else:
+            messages.append(
+                f"{premium('?', 'globe')} <b>ALL AVAILABLE SERVICES</b>\n{divider()}\n\n"
+                f"{premium('?', 'help')} <b>PART:</b> {part}/{total_parts}\n\n"
+                f"{body}\n\n"
+                f"{divider()}\n"
+                f"{premium('?', 'search')} Continue by typing any service name."
+            )
+    return messages
+
+
 def join_menu(channels, joined: list[bool]) -> InlineKeyboardMarkup:
     styles = ("primary", "success", "danger")
     buttons = [
@@ -1957,14 +2000,20 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         context.user_data["flow"] = "service_search"
         context.user_data.pop("service", None)
         context.user_data.pop("api_service", None)
+        service_list_messages = api_service_full_list_texts()
         await query.edit_message_text(
-            api_service_search_text(),
+            service_list_messages[0],
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup([
                 [styled_button("TYPE SERVICE NAME", "search_service", "success", "search")],
                 [styled_button("BACK TO CHECKERS", "main_menu", "danger", "back")],
             ]),
         )
+        for extra_message in service_list_messages[1:]:
+            await query.message.reply_text(
+                extra_message,
+                parse_mode=ParseMode.HTML,
+            )
     elif query.data.startswith("service:"):
         service = query.data.split(":", 1)[1]
         if service not in SERVICES:
