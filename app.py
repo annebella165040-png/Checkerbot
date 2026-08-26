@@ -572,6 +572,53 @@ def api_service_guidance(name: str, detail: str) -> str:
     return "Send ID, username, URL, account token or official API credential depending on service."
 
 
+def api_service_input_label(name: str, detail: str) -> str:
+    haystack = f"{name} {detail}".lower()
+    if any(word in haystack for word in {"gmail", "email", "sendgrid", "mailchimp", "mailgun", "brevo", "postmark", "klaviyo"}):
+        return "authorized email address or OAuth/API detail"
+    if any(word in haystack for word in {"instagram", "facebook", "threads", "linkedin", "snapchat", "x / twitter", "tiktok", "pinterest", "reddit", "tumblr", "mastodon", "bluesky"}):
+        return "username, profile link, post link, or OAuth-approved account detail"
+    if any(word in haystack for word in {"discord", "telegram", "slack", "teams", "line", "viber", "messenger", "whatsapp"}):
+        return "user ID, chat/channel/server ID, bot token scope, or authorized business detail"
+    if any(word in haystack for word in {"website", "url", "domain", "whois", "dns", "safe browsing", "virustotal", "urlscan", "shodan", "abuseipdb", "ipinfo", "ipapi", "securitytrails", "builtwith", "wappalyzer"}):
+        return "URL, domain, or IP address"
+    if any(word in haystack for word in {"payment", "pay", "stripe", "paypal", "razorpay", "paytm", "cashfree", "phonepe", "square"}):
+        return "order ID, payment ID, transaction ID, or merchant API detail"
+    if any(word in haystack for word in {"shop", "amazon", "commerce", "marketplace", "seller", "storefront", "woocommerce", "shopify", "ebay", "etsy", "walmart", "flipkart"}):
+        return "product URL, SKU, seller ID, or order ID"
+    return "ID, username, URL, phone number, email, or official API detail"
+
+
+def api_service_select_text(name: str, detail: str) -> str:
+    return (
+        f"{premium('◆', 'globe')} <b>{escape(name.upper())} SERVICE SELECTED</b>\n{divider()}\n\n"
+        f"{premium('◆', 'search')} <b>AVAILABLE LOOKUP TYPE:</b>\n{escape(api_service_guidance(name, detail))}\n\n"
+        f"{premium('◆', 'phone')} <b>NOW SEND:</b>\n"
+        f"Send the {escape(api_service_input_label(name, detail))} for this service.\n\n"
+        f"{premium('◆', 'warn')} <b>NOTE:</b> If this service requires official API/OAuth approval, the bot will explain the requirement instead of showing a fake result."
+    )
+
+
+def api_service_input_result_text(name: str, detail: str, value: str) -> str:
+    safe_value = escape(value[:120])
+    registration_blocked = any(word in f"{name} {detail}".lower() for word in {
+        "gmail", "instagram", "facebook", "threads", "linkedin", "snapchat", "x / twitter", "discord", "whatsapp", "telegram", "tiktok",
+    })
+    status = (
+        "Official API/OAuth access required. Public account-registration checking is not available for this service."
+        if registration_blocked
+        else "Input accepted. This service can be integrated through its official API or configured provider."
+    )
+    return (
+        f"{premium('◆', 'search')} <b>{escape(name.upper())} LOOKUP REVIEW</b>\n{divider()}\n\n"
+        f"{premium('◆', 'profile')} <b>SUBMITTED:</b> <code>{safe_value}</code>\n"
+        f"{premium('◆', 'globe')} <b>SERVICE:</b> {escape(name)}\n\n"
+        f"{premium('◆', 'check')} <b>CHECKUP STATUS:</b>\n{escape(status)}\n\n"
+        f"{premium('◆', 'help')} <b>WHAT CAN BE CHECKED:</b>\n{escape(api_service_guidance(name, detail))}\n\n"
+        f"{premium('◆', 'warn')} For real registered/not-registered phone checks, use the active checker buttons like Flipkart, Telegram, WhatsApp, etc."
+    )
+
+
 def api_service_search_text(query: str = "") -> str:
     matches = api_service_matches(query)
     title = "POPULAR API SERVICE DIRECTORY" if not query.strip() else f"API SERVICE SEARCH: {escape(query[:40])}"
@@ -586,7 +633,7 @@ def api_service_search_text(query: str = "") -> str:
         f"{premium('◆', 'check')} <b>MATCHES SHOWN:</b> {len(matches)}\n\n"
         f"{lines}\n\n"
         f"{divider()}\n"
-        f"{premium('◆', 'warn')} <b>NEXT STEP:</b> Active number checks work from checker buttons. Directory services show what can be searched with official API/OAuth access. Phone/email account-registration checking is not publicly allowed for most big apps."
+        f"{premium('◆', 'warn')} <b>NEXT STEP:</b> If one clear service is found, bot will ask for the next input. Active phone checks still work from checker buttons."
     )
 
 
@@ -1318,12 +1365,47 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(f"{premium('◆', 'check')} <b>GIFT CARD REDEEMED</b>\n\n<b>{card[1]} credits</b> were added successfully.", parse_mode=ParseMode.HTML, reply_markup=dashboard_keyboard())
         return
     if flow == "service_search":
+        matches = api_service_matches(text)
+        if len(matches) == 1:
+            name, detail = matches[0]
+            context.user_data["flow"] = "api_service_input"
+            context.user_data["api_service"] = {"name": name, "detail": detail}
+            await update.message.reply_text(
+                api_service_select_text(name, detail),
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup([
+                    [styled_button("SEARCH AGAIN", "search_service", "primary", "search")],
+                    [styled_button("BACK TO CHECKERS", "main_menu", "danger", "back")],
+                ]),
+            )
+            return
         await update.message.reply_text(
             api_service_search_text(text),
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup([
                 [styled_button("SEARCH AGAIN", "search_service", "success", "search")],
                 [styled_button("BACK TO CHECKERS", "main_menu", "danger", "back")],
+            ]),
+        )
+        return
+    if flow == "api_service_input":
+        selected = context.user_data.get("api_service") or {}
+        name, detail = selected.get("name"), selected.get("detail")
+        if not name or not detail:
+            context.user_data["flow"] = "service_search"
+            await update.message.reply_text(
+                f"{premium('◆', 'search')} <b>SEARCH SERVICE</b>\n\nSend the application/service name again.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        context.user_data.pop("flow", None)
+        context.user_data.pop("api_service", None)
+        await update.message.reply_text(
+            api_service_input_result_text(name, detail, text),
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([
+                [styled_button("SEARCH ANOTHER SERVICE", "search_service", "success", "search")],
+                [styled_button("CHECKER DIRECTORY", "main_menu", "primary", "search")],
             ]),
         )
         return
@@ -1814,6 +1896,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     elif query.data == "search_service":
         context.user_data["flow"] = "service_search"
         context.user_data.pop("service", None)
+        context.user_data.pop("api_service", None)
         await query.edit_message_text(
             api_service_search_text(),
             parse_mode=ParseMode.HTML,
