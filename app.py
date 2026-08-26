@@ -258,6 +258,7 @@ SIGNUP_CREDITS = int(os.getenv("SIGNUP_CREDITS", "150"))
 REFERRAL_CREDITS = int(os.getenv("REFERRAL_CREDITS", "20"))
 CHECK_COST = int(os.getenv("CHECK_COST", "5"))
 MINI_APP_COST = int(os.getenv("MINI_APP_COST", "1000"))
+SERVICE_PAGE_SIZE = int(os.getenv("SERVICE_PAGE_SIZE", "36"))
 API_BASE_URL = os.getenv("PUBLIC_API_BASE_URL", os.getenv("MINI_APP_URL", "https://web-production-b80e9.up.railway.app")).strip().rstrip("/")
 if API_BASE_URL.endswith("/miniapp"):
     API_BASE_URL = API_BASE_URL[:-8]
@@ -578,21 +579,78 @@ def menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
+def canonical_api_service_name(name: str) -> str:
+    clean = re.sub(r"^(ekycpro|numberchecker|proweblook|waha|wawp|whatsscale|ignorant)\s+", "", name, flags=re.I)
+    clean = re.sub(r"\s+(number|phone|email|exists|avatar|business|registration)?\s*checker$", "", clean, flags=re.I).strip()
+    lower = clean.lower()
+    if "x twitter" in lower or lower == "twitter":
+        return "X / Twitter"
+    if "imessage" in lower:
+        return "Apple iMessage"
+    if "whatsapp" in lower:
+        return "WhatsApp"
+    if lower == "band":
+        return "BAND"
+    if lower == "hh":
+        return "HeadHunter"
+    return clean
+
+
+def api_service_catalog():
+    catalog: dict[str, dict] = {}
+    for service in SERVICES:
+        catalog[service.lower()] = {
+            "name": service,
+            "detail": f"Live Annebella checker available; send phone number; costs {CHECK_COST} credits on determined result",
+            "active": True,
+            "variants": [service],
+        }
+    for name, detail in API_DIRECTORY:
+        canonical = canonical_api_service_name(name)
+        key = canonical.lower()
+        if key in catalog:
+            catalog[key]["variants"].append(name)
+            if not catalog[key]["active"] and len(detail) > len(catalog[key]["detail"]):
+                catalog[key]["detail"] = detail
+        else:
+            catalog[key] = {
+                "name": canonical,
+                "detail": detail,
+                "active": canonical in SERVICES,
+                "variants": [name],
+            }
+    return list(catalog.values())
+
+
+def api_service_by_index(index: int):
+    catalog = api_service_catalog()
+    if 0 <= index < len(catalog):
+        return catalog[index]
+    return None
+
+
 def api_service_matches(query: str, limit: int = 25):
     query = normalize_small_caps(query).strip().lower()
+    catalog = api_service_catalog()
     if not query:
-        return API_DIRECTORY[:limit]
+        return catalog[:limit]
     terms = [term for term in re.split(r"[\s,./|+-]+", query) if term]
+    exact_name_matches = [
+        item for item in catalog
+        if normalize_small_caps(item["name"]).strip().lower() == query
+    ]
+    if exact_name_matches:
+        return exact_name_matches[:limit]
     matches = []
-    for name, detail in API_DIRECTORY:
-        haystack = f"{name} {detail}".lower()
+    for item in catalog:
+        haystack = f"{item['name']} {item['detail']} {' '.join(item['variants'])}".lower()
         if all(term in haystack for term in terms):
-            matches.append((name, detail))
+            matches.append(item)
     if not matches:
-        for name, detail in API_DIRECTORY:
-            haystack = f"{name} {detail}".lower()
+        for item in catalog:
+            haystack = f"{item['name']} {item['detail']} {' '.join(item['variants'])}".lower()
             if any(term in haystack for term in terms):
-                matches.append((name, detail))
+                matches.append(item)
     return matches[:limit]
 
 
@@ -738,6 +796,113 @@ def api_service_full_list_texts() -> list[str]:
                 f"{premium('?', 'search')} Continue by typing any service name."
             )
     return messages
+
+
+def api_service_search_text(query: str = "") -> str:
+    matches = api_service_matches(query)
+    title = "POPULAR SERVICE SEARCH" if not query.strip() else f"SERVICE SEARCH: {escape(query[:40])}"
+    if not matches:
+        lines = "No matching service found. Try <code>whatsapp</code>, <code>gmail</code>, <code>amazon</code>, <code>telegram</code>, or <code>instagram</code>."
+    else:
+        lines = "\n".join(
+            f"{index}. <b>{escape(item['name'])}</b> - {'LIVE CHECKER' if item['active'] else 'API INDEXED'}\n"
+            f"   <i>Input:</i> {escape(api_service_guidance(item['name'], item['detail']))}"
+            for index, item in enumerate(matches, 1)
+        )
+    return (
+        f"{premium('?', 'globe')} <b>{title}</b>\n{divider()}\n\n"
+        f"{premium('?', 'search')} <b>TOTAL AVAILABLE:</b> {len(api_service_catalog())} clean services\n"
+        f"{premium('?', 'check')} <b>MATCHES SHOWN:</b> {len(matches)}\n\n"
+        f"{lines}\n\n"
+        f"{divider()}\n"
+        f"{premium('?', 'phone')} Type exact service name or tap the service button below."
+    )
+
+
+def service_page_count() -> int:
+    return max(1, (len(api_service_catalog()) + SERVICE_PAGE_SIZE - 1) // SERVICE_PAGE_SIZE)
+
+
+def api_service_page_text(page: int = 0) -> str:
+    catalog = api_service_catalog()
+    total_pages = service_page_count()
+    page = max(0, min(page, total_pages - 1))
+    start = page * SERVICE_PAGE_SIZE
+    page_items = catalog[start:start + SERVICE_PAGE_SIZE]
+    active_names = ", ".join(escape(name) for name in SERVICES)
+    body = "\n".join(
+        f"{start + index:03d}. {'✅' if item['active'] else '🔌'} {escape(item['name'])}"
+        for index, item in enumerate(page_items, 1)
+    )
+    live_block = (
+        f"{premium('?', 'check')} <b>LIVE CHECKERS:</b> {len(SERVICES)}\n{active_names}\n\n"
+        if page == 0 else ""
+    )
+    return (
+        f"{premium('?', 'globe')} <b>ALL AVAILABLE SERVICES</b>\n{divider()}\n\n"
+        f"{live_block}"
+        f"{premium('?', 'search')} <b>CLEAN SERVICE LIST:</b> {len(catalog)}\n"
+        f"{premium('?', 'help')} <b>PAGE:</b> {page + 1}/{total_pages}\n\n"
+        f"{body}\n\n"
+        f"{divider()}\n"
+        f"{premium('?', 'phone')} Type service name/keyword, example: <code>whatsapp</code>, <code>gmail</code>, <code>telegram</code>."
+    )
+
+
+def service_page_keyboard(page: int = 0) -> InlineKeyboardMarkup:
+    total_pages = service_page_count()
+    page = max(0, min(page, total_pages - 1))
+    rows = []
+    nav = []
+    if page > 0:
+        nav.append(styled_button("PREVIOUS", f"services_page:{page - 1}", "primary", "back"))
+    if page < total_pages - 1:
+        nav.append(styled_button("NEXT", f"services_page:{page + 1}", "success", "search"))
+    if nav:
+        rows.append(nav)
+    rows.append([styled_button("TYPE SERVICE NAME", "search_service", "primary", "search")])
+    rows.append([styled_button("BACK TO CHECKERS", "main_menu", "danger", "back")])
+    return InlineKeyboardMarkup(rows)
+
+
+def service_search_result_text(query: str, matches: list[dict]) -> str:
+    if not matches:
+        return (
+            f"{premium('?', 'search')} <b>SERVICE NOT FOUND</b>\n{divider()}\n\n"
+            f"No clean service matched <code>{escape(query[:60])}</code>.\n\n"
+            f"{premium('?', 'help')} Try a simple keyword like <code>whatsapp</code>, <code>gmail</code>, <code>amazon</code>, or <code>telegram</code>."
+        )
+    if len(matches) == 1:
+        item = matches[0]
+        return (
+            f"{premium('?', 'check')} <b>SERVICE AVAILABLE</b>\n{divider()}\n\n"
+            f"{premium('?', 'globe')} <b>SERVICE:</b> {escape(item['name'])}\n"
+            f"{premium('?', 'search')} <b>STATUS:</b> {'LIVE CHECKER READY' if item['active'] else 'API INDEXED'}\n"
+            f"{premium('?', 'phone')} <b>NEXT:</b> Tap the button below to continue."
+        )
+    lines = "\n".join(
+        f"{index}. <b>{escape(item['name'])}</b> - {'LIVE' if item['active'] else 'API INDEXED'}"
+        for index, item in enumerate(matches[:10], 1)
+    )
+    return (
+        f"{premium('?', 'search')} <b>MULTIPLE SERVICES FOUND</b>\n{divider()}\n\n"
+        f"{lines}\n\n"
+        f"{premium('?', 'phone')} Tap one button below, or type a more exact service name."
+    )
+
+
+def service_search_result_keyboard(matches: list[dict]) -> InlineKeyboardMarkup:
+    catalog = api_service_catalog()
+    rows = []
+    for item in matches[:10]:
+        index = next((idx for idx, candidate in enumerate(catalog) if candidate["name"] == item["name"]), None)
+        if index is None:
+            continue
+        callback = f"service:{item['name']}" if item["active"] and item["name"] in SERVICES else f"api_select:{index}"
+        rows.append([styled_button(item["name"], callback, "success" if item["active"] else "primary", "search")])
+    rows.append([styled_button("SEARCH AGAIN", "search_service", "success", "search")])
+    rows.append([styled_button("BACK TO CHECKERS", "main_menu", "danger", "back")])
+    return InlineKeyboardMarkup(rows)
 
 
 def join_menu(channels, joined: list[bool]) -> InlineKeyboardMarkup:
@@ -1470,25 +1635,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if flow == "service_search":
         matches = api_service_matches(text)
         if len(matches) == 1:
-            name, detail = matches[0]
-            context.user_data["flow"] = "api_service_input"
-            context.user_data["api_service"] = {"name": name, "detail": detail}
             await update.message.reply_text(
-                api_service_select_text(name, detail),
+                service_search_result_text(text, matches),
                 parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup([
-                    [styled_button("SEARCH AGAIN", "search_service", "primary", "search")],
-                    [styled_button("BACK TO CHECKERS", "main_menu", "danger", "back")],
-                ]),
+                reply_markup=service_search_result_keyboard(matches),
             )
             return
         await update.message.reply_text(
-            api_service_search_text(text),
+            service_search_result_text(text, matches),
             parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup([
-                [styled_button("SEARCH AGAIN", "search_service", "success", "search")],
-                [styled_button("BACK TO CHECKERS", "main_menu", "danger", "back")],
-            ]),
+            reply_markup=service_search_result_keyboard(matches),
         )
         return
     if flow == "api_service_input":
@@ -2000,20 +2156,51 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         context.user_data["flow"] = "service_search"
         context.user_data.pop("service", None)
         context.user_data.pop("api_service", None)
-        service_list_messages = api_service_full_list_texts()
         await query.edit_message_text(
-            service_list_messages[0],
+            api_service_page_text(0),
+            parse_mode=ParseMode.HTML,
+            reply_markup=service_page_keyboard(0),
+        )
+    elif query.data.startswith("services_page:"):
+        context.user_data["flow"] = "service_search"
+        raw_page = query.data.split(":", 1)[1]
+        try:
+            page = int(raw_page)
+        except ValueError:
+            page = 0
+        await query.edit_message_text(
+            api_service_page_text(page),
+            parse_mode=ParseMode.HTML,
+            reply_markup=service_page_keyboard(page),
+        )
+    elif query.data.startswith("api_select:"):
+        raw_index = query.data.split(":", 1)[1]
+        try:
+            item = api_service_by_index(int(raw_index))
+        except ValueError:
+            item = None
+        if not item:
+            await query.answer("Service not found. Search again.", show_alert=True)
+            return
+        if item["active"] and item["name"] in SERVICES:
+            context.user_data["service"] = item["name"]
+            context.user_data.pop("flow", None)
+            await query.edit_message_text(
+                f"{premium('?', 'search')} <b>{item['name'].upper()} CHECKER</b>\n\nSend the authorized mobile number with country code. Example: <code>+919876543210</code>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup([[styled_button("BACK TO CHECKERS", "main_menu", "danger", "back")]]),
+            )
+            return
+        context.user_data["flow"] = "api_service_input"
+        context.user_data["api_service"] = {"name": item["name"], "detail": item["detail"]}
+        await query.edit_message_text(
+            api_service_select_text(item["name"], item["detail"]),
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup([
-                [styled_button("TYPE SERVICE NAME", "search_service", "success", "search")],
+                [styled_button("SEARCH AGAIN", "search_service", "primary", "search")],
                 [styled_button("BACK TO CHECKERS", "main_menu", "danger", "back")],
             ]),
         )
-        for extra_message in service_list_messages[1:]:
-            await query.message.reply_text(
-                extra_message,
-                parse_mode=ParseMode.HTML,
-            )
     elif query.data.startswith("service:"):
         service = query.data.split(":", 1)[1]
         if service not in SERVICES:
