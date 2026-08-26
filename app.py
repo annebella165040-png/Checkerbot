@@ -211,6 +211,20 @@ SIGNUP_CREDITS = int(os.getenv("SIGNUP_CREDITS", "150"))
 REFERRAL_CREDITS = int(os.getenv("REFERRAL_CREDITS", "20"))
 CHECK_COST = int(os.getenv("CHECK_COST", "5"))
 MINI_APP_COST = int(os.getenv("MINI_APP_COST", "1000"))
+API_BASE_URL = os.getenv("PUBLIC_API_BASE_URL", os.getenv("MINI_APP_URL", "https://web-production-b80e9.up.railway.app")).strip().rstrip("/")
+if API_BASE_URL.endswith("/miniapp"):
+    API_BASE_URL = API_BASE_URL[:-8]
+API_PLANS = {
+    "api_weekly": {"item_type": "api", "plan": "WEEKLY API ACCESS", "duration_days": 7, "price": 100, "currency": "USD"},
+    "api_monthly": {"item_type": "api", "plan": "MONTHLY API ACCESS", "duration_days": 30, "price": 250, "currency": "USD"},
+    "api_yearly": {"item_type": "api", "plan": "YEARLY API ACCESS", "duration_days": 365, "price": 900, "currency": "USD"},
+}
+CREDIT_PACKAGES = {
+    "buy_100": {"item_type": "credit", "credits": 100, "price": 49, "currency": "INR"},
+    "buy_500": {"item_type": "credit", "credits": 500, "price": 199, "currency": "INR"},
+    "buy_1000": {"item_type": "credit", "credits": 1000, "price": 349, "currency": "INR"},
+    "buy_5000": {"item_type": "credit", "credits": 5000, "price": 999, "currency": "INR"},
+}
 
 EMOJI_IDS = {
     "sparkle": "5289722755871162900",
@@ -247,6 +261,7 @@ EMOJI_IDS = {
     "lock": "6206404510689007446",
     "globe": "5372849966689566579",
     "india": "5291933173674957761",
+    "key": "5893382531037794941",
 }
 EMOJI_FALLBACKS = {
     "sparkle": "✨", "profile": "👤", "search": "🔎", "credits": "💎",
@@ -258,6 +273,7 @@ EMOJI_FALLBACKS = {
     "history": "📋", "refresh": "🔄", "star": "⭐", "wave": "〰️",
     "warn": "⚠️", "trophy": "🏆",
     "rocket": "🚀", "fire": "🔥", "lock": "🔒", "globe": "🌐", "india": "🇮🇳",
+    "key": "🔑",
 }
 
 SC_MAP = {
@@ -339,6 +355,12 @@ def db_connect():
     return sqlite3.connect(DB_PATH)
 
 
+def is_admin_user(user_id: int | None) -> bool:
+    if user_id is None:
+        return False
+    return str(user_id) in {value.strip() for value in os.getenv("ADMIN_IDS", "").split(",") if value.strip()}
+
+
 def init_db() -> None:
     with closing(db_connect()) as db:
         db.executescript(
@@ -385,7 +407,19 @@ def init_db() -> None:
                 reference TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'pending',
                 created_at INTEGER NOT NULL,
-                reviewed_at INTEGER
+                reviewed_at INTEGER,
+                item_type TEXT NOT NULL DEFAULT 'credit',
+                plan_name TEXT,
+                amount_label TEXT
+            );
+            CREATE TABLE IF NOT EXISTS api_keys (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                telegram_id INTEGER NOT NULL,
+                api_key TEXT NOT NULL UNIQUE,
+                plan_name TEXT NOT NULL,
+                expires_at INTEGER NOT NULL,
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at INTEGER NOT NULL
             );
             CREATE TABLE IF NOT EXISTS support_tickets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -415,6 +449,15 @@ def init_db() -> None:
         }
         for column, statement in migrations.items():
             if column not in columns:
+                db.execute(statement)
+        payment_columns = {row[1] for row in db.execute("PRAGMA table_info(payment_requests)")}
+        payment_migrations = {
+            "item_type": "ALTER TABLE payment_requests ADD COLUMN item_type TEXT NOT NULL DEFAULT 'credit'",
+            "plan_name": "ALTER TABLE payment_requests ADD COLUMN plan_name TEXT",
+            "amount_label": "ALTER TABLE payment_requests ADD COLUMN amount_label TEXT",
+        }
+        for column, statement in payment_migrations.items():
+            if column not in payment_columns:
                 db.execute(statement)
         db.commit()
 
@@ -802,15 +845,101 @@ def buy_packages_keyboard() -> InlineKeyboardMarkup:
         [styled_button("100 CREDITS", "buy_100", "success", "credits"), styled_button("500 CREDITS", "buy_500", "primary", "credits")],
         [styled_button("1000 CREDITS", "buy_1000", "success", "buy"), styled_button("5000 CREDITS", "buy_5000", "primary", "buy")],
         [styled_button("CUSTOM PACKAGE", "buy_custom", "danger", "buy")],
+        [styled_button("BACK", "buy", "danger", "back")],
+    ])
+
+
+def buy_type_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [styled_button("API ACCESS", "buy_api_menu", "success", "globe"), styled_button("CREDIT BALANCE", "buy_credit_menu", "primary", "credits")],
+        [styled_button("SUPPORT", "support", "danger", "support")],
+    ])
+
+
+def api_packages_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [styled_button("WEEKLY API - $100", "api_weekly", "success", "globe")],
+        [styled_button("MONTHLY API - $250", "api_monthly", "primary", "globe")],
+        [styled_button("YEARLY API - $900", "api_yearly", "danger", "globe")],
+        [styled_button("BACK", "buy", "danger", "back")],
     ])
 
 
 def payment_qr_url(credits: int, price: int | None) -> str:
-    params = {"pa": os.getenv("PAYMENT_UPI_ID", "gauravpayout@fam").strip(), "pn": "Annebella", "cu": "INR", "tn": f"Annebella {credits} Credits"}
+    note = f"Annebella {credits} Credits" if credits else "Annebella API Access"
+    params = {"pa": os.getenv("PAYMENT_UPI_ID", "gauravpayout@fam").strip(), "pn": "Annebella", "cu": "INR", "tn": note}
     if price is not None:
         params["am"] = str(price)
     payment_uri = "upi://pay?" + urlencode(params)
     return "https://api.qrserver.com/v1/create-qr-code/?" + urlencode({"size": "320x320", "data": payment_uri})
+
+
+def package_title(package: dict) -> str:
+    if package.get("item_type") == "api":
+        return package["plan"]
+    return f"{package['credits']} CREDITS"
+
+
+def package_price_text(package: dict) -> str:
+    price = package.get("price")
+    if price is None:
+        return "Manually confirmed amount"
+    if package.get("currency") == "USD":
+        return f"${price}"
+    return f"₹{price}"
+
+
+def package_amount_inr(package: dict) -> int:
+    return int(package.get("price") or 0) if package.get("currency") == "INR" else 0
+
+
+def package_amount_label(package: dict) -> str:
+    return package_price_text(package)
+
+
+def payment_review_keyboard(payment_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[
+        styled_button("APPROVE", f"adminpay:approve:{payment_id}", "success", "check"),
+        styled_button("DECLINE", f"adminpay:reject:{payment_id}", "danger", "warn"),
+    ]])
+
+
+def buy_choice_text() -> str:
+    return (
+        f"{premium('◆', 'buy')} <b>ANNEBELLA STORE</b>\n{divider()}\n\n"
+        f"{premium('◆', 'globe')} <b>API ACCESS</b>\n"
+        "Buy weekly, monthly, or yearly API access for your own tools/projects.\n\n"
+        f"{premium('◆', 'credits')} <b>CREDIT BALANCE</b>\n"
+        "Buy normal checker credits for Telegram and Mini App lookups.\n\n"
+        f"{premium('◆', 'warn')} <b>SECURITY:</b> Never share OTP, UPI PIN, wallet seed phrase, or account password."
+    )
+
+
+def credit_store_text() -> str:
+    return (
+        f"{premium('◆', 'credits')} <b>ANNEBELLA CREDIT STORE</b>\n{divider()}\n\n"
+        f"{premium('◆', 'credits')} 100 credits - ₹49\n"
+        f"{premium('◆', 'credits')} 500 credits - ₹199\n"
+        f"{premium('◆', 'credits')} 1000 credits - ₹349\n"
+        f"{premium('◆', 'credits')} 5000 credits - ₹999\n\n"
+        f"{premium('◆', 'upi')} Select UPI for a scannable payment QR.\n"
+        f"{premium('◆', 'usdt')} Select USDT for copy-ready Binance and network addresses.\n\n"
+        f"{premium('◆', 'check')} After payment, send transaction reference or screenshot. Admin approval adds credits."
+    )
+
+
+def api_store_text() -> str:
+    return (
+        f"{premium('◆', 'globe')} <b>ANNEBELLA CHECKER API ACCESS</b>\n{divider()}\n\n"
+        f"{premium('◆', 'lightning')} <b>WEEKLY:</b> $100 - 7 days access\n"
+        f"{premium('◆', 'star')} <b>MONTHLY:</b> $250 - 30 days access\n"
+        f"{premium('◆', 'trophy')} <b>YEARLY:</b> $900 - 365 days access\n\n"
+        f"{premium('◆', 'check')} After approval, the bot generates your personal API key automatically.\n"
+        f"{premium('◆', 'credits')} Determined API lookups still use your checker credits at <b>{CHECK_COST} credits/check</b>.\n\n"
+        f"{premium('◆', 'link')} <b>ENDPOINTS:</b>\n"
+        f"<code>{API_BASE_URL}/api/v1/me</code>\n"
+        f"<code>{API_BASE_URL}/api/v1/check</code>"
+    )
 
 
 def usdt_payment_keyboard() -> InlineKeyboardMarkup:
@@ -825,17 +954,140 @@ def usdt_payment_keyboard() -> InlineKeyboardMarkup:
 
 
 async def send_payment_methods(message, package: dict) -> None:
-    amount = f"₹{package['price']}" if package.get("price") is not None else "Manually confirmed amount"
     await message.reply_text(
         f"{premium('◆', 'payment')} <b>SELECT PAYMENT METHOD</b>\n{divider()}\n\n"
-        f"{premium('◆', 'credits')} <b>PACKAGE:</b> {package['credits']} CREDITS\n"
-        f"{premium('◆', 'money')} <b>PAYABLE AMOUNT:</b> {amount}\n\n"
-        f"{premium('◆', 'upi')} Choose UPI for a payment QR.\n{premium('◆', 'usdt')} Choose USDT for copy-ready wallet details.",
+        f"{premium('◆', 'credits')} <b>PACKAGE:</b> {escape(package_title(package))}\n"
+        f"{premium('◆', 'money')} <b>PAYABLE AMOUNT:</b> {escape(package_price_text(package))}\n\n"
+        f"{premium('◆', 'upi')} Choose UPI for a payment QR.\n"
+        f"{premium('◆', 'usdt')} Choose USDT for copy-ready wallet details.",
         parse_mode=ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup([[
             styled_button("UPI PAYMENT", "paymethod_upi", "success", "upi"),
             styled_button("USDT PAYMENT", "paymethod_usdt", "primary", "usdt"),
         ]]),
+    )
+
+
+def insert_payment_request(user_id: int, package: dict, reference: str) -> int:
+    with closing(db_connect()) as db:
+        cursor = db.execute(
+            """
+            INSERT INTO payment_requests
+                (telegram_id, credits, amount_inr, reference, created_at, item_type, plan_name, amount_label)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                int(package.get("credits", 0)),
+                package_amount_inr(package),
+                reference,
+                int(time.time()),
+                package.get("item_type", "credit"),
+                package.get("plan"),
+                package_amount_label(package),
+            ),
+        )
+        request_id = cursor.lastrowid
+        db.commit()
+        return int(request_id)
+
+
+def payment_request_text(payment_id: int, user_id: int, package: dict, reference: str) -> str:
+    return (
+        f"{premium('◆', 'payment')} <b>NEW PAYMENT REQUEST #{payment_id}</b>\n{divider()}\n\n"
+        f"{premium('◆', 'profile')} <b>USER:</b> <code>{user_id}</code>\n"
+        f"{premium('◆', 'buy')} <b>TYPE:</b> {escape(package.get('item_type', 'credit').upper())}\n"
+        f"{premium('◆', 'credits')} <b>PACKAGE:</b> {escape(package_title(package))}\n"
+        f"{premium('◆', 'money')} <b>AMOUNT:</b> {escape(package_price_text(package))}\n"
+        f"{premium('◆', 'history')} <b>REFERENCE:</b> <code>{escape(reference[:900])}</code>\n\n"
+        f"{premium('◆', 'warn')} Review proof carefully before approving."
+    )
+
+
+async def notify_admin_payment_request(context: ContextTypes.DEFAULT_TYPE, payment_id: int, user_id: int, package: dict, reference: str) -> None:
+    for admin_id in {value.strip() for value in os.getenv("ADMIN_IDS", "").split(",") if value.strip().isdigit()}:
+        try:
+            await context.bot.send_message(
+                int(admin_id),
+                payment_request_text(payment_id, user_id, package, reference),
+                parse_mode=ParseMode.HTML,
+                reply_markup=payment_review_keyboard(payment_id),
+            )
+        except Exception:
+            logger.info("Could not deliver payment approval card to admin %s", admin_id)
+
+
+def issue_api_key(db, user_id: int, plan_name: str | None) -> tuple[str, int]:
+    plan = next((value for value in API_PLANS.values() if value["plan"] == plan_name), API_PLANS["api_monthly"])
+    now = int(time.time())
+    api_key = "ABAPI_" + secrets.token_urlsafe(24)
+    expires_at = now + int(plan["duration_days"]) * 86400
+    db.execute("UPDATE api_keys SET active = 0 WHERE telegram_id = ?", (user_id,))
+    db.execute(
+        "INSERT INTO api_keys (telegram_id, api_key, plan_name, expires_at, active, created_at) VALUES (?, ?, ?, ?, 1, ?)",
+        (user_id, api_key, plan["plan"], expires_at, now),
+    )
+    return api_key, expires_at
+
+
+def review_payment_record(payment_id: int, action: str):
+    if action not in {"approve", "reject"}:
+        return None
+    with closing(db_connect()) as db:
+        payment = db.execute(
+            "SELECT telegram_id, credits, status, item_type, plan_name, amount_label FROM payment_requests WHERE id = ?",
+            (payment_id,),
+        ).fetchone()
+        if not payment or payment[2] != "pending":
+            return None
+        user_id, credits, _status, item_type, plan_name, amount_label = payment
+        status = "approved" if action == "approve" else "rejected"
+        db.execute("UPDATE payment_requests SET status = ?, reviewed_at = ? WHERE id = ?", (status, int(time.time()), payment_id))
+        api_key = None
+        expires_at = None
+        if action == "approve":
+            if item_type == "api":
+                api_key, expires_at = issue_api_key(db, user_id, plan_name)
+            else:
+                db.execute("UPDATE users SET credits = credits + ? WHERE telegram_id = ?", (credits, user_id))
+                db.execute(
+                    "INSERT INTO credit_transactions (telegram_id, amount, kind, note, created_at) VALUES (?, ?, 'purchase', ?, ?)",
+                    (user_id, credits, f"Approved payment #{payment_id}", int(time.time())),
+                )
+        db.commit()
+    return {
+        "user_id": user_id,
+        "credits": credits,
+        "status": status,
+        "item_type": item_type,
+        "plan_name": plan_name,
+        "amount_label": amount_label,
+        "api_key": api_key,
+        "expires_at": expires_at,
+    }
+
+
+def review_user_message(payment_id: int, result: dict, approved: bool) -> str:
+    if approved and result["item_type"] == "api":
+        expires = time.strftime("%d %b %Y", time.localtime(result["expires_at"]))
+        return (
+            f"{premium('◆', 'check')} <b>API ACCESS APPROVED</b>\n{divider()}\n\n"
+            f"{premium('◆', 'globe')} <b>PLAN:</b> {escape(result['plan_name'] or 'API ACCESS')}\n"
+            f"{premium('◆', 'history')} <b>VALID UNTIL:</b> {expires}\n\n"
+            f"{premium('◆', 'key')} <b>YOUR API KEY:</b>\n<code>{escape(result['api_key'])}</code>\n\n"
+            f"{premium('◆', 'link')} <b>BASE URL:</b> <code>{escape(API_BASE_URL)}</code>\n"
+            f"{premium('◆', 'search')} <b>CHECK ENDPOINT:</b> <code>POST /api/v1/check</code>\n\n"
+            f"{premium('◆', 'warn')} Keep this key private. Determined checks deduct <b>{CHECK_COST} credits</b> from your bot balance."
+        )
+    if approved:
+        return (
+            f"{premium('◆', 'check')} <b>PAYMENT APPROVED</b>\n{divider()}\n\n"
+            f"{premium('◆', 'credits')} <b>{result['credits']} credits</b> were added to your Annebella Checker account.\n"
+            f"{premium('◆', 'profile')} Open Profile to view the latest balance."
+        )
+    return (
+        f"{premium('◆', 'warn')} <b>PAYMENT NOT APPROVED</b>\n{divider()}\n\n"
+        f"Request <b>#{payment_id}</b> could not be verified. Please contact support with the correct transaction reference or clear payment screenshot."
     )
 
 
@@ -852,8 +1104,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         try:
             await context.bot.send_message(
                 referred_by,
-                f"{premium('◆', 'referral')} <b>REFERRAL REWARD CREDITED</b>\n\nA new user joined through your link. "
-                f"<b>{REFERRAL_CREDITS} credits</b> have been added to your Annebella account.",
+                f"{premium('◆', 'referral')} <b>REFERRAL REWARD CREDITED</b>\n{divider()}\n\n"
+                f"A new user joined through your link.\n\n"
+                f"{premium('◆', 'credits')} <b>{REFERRAL_CREDITS} credits</b> have been added to your Annebella account.",
                 parse_mode=ParseMode.HTML,
             )
         except Exception:
@@ -882,8 +1135,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
     elif launch_action == "buy_credit":
         await update.message.reply_text(
-            f"{premium('◆', 'buy')} <b>ANNEBELLA CREDIT STORE</b>\n{divider()}\n\nSelect a verified credit package to continue with UPI or USDT.",
-            parse_mode=ParseMode.HTML, reply_markup=buy_packages_keyboard(),
+            buy_choice_text(),
+            parse_mode=ParseMode.HTML, reply_markup=buy_type_keyboard(),
         )
     elif launch_action == "support":
         context.user_data["flow"] = "support"
@@ -952,15 +1205,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
         elif text == "BUY CREDIT":
             await update.message.reply_text(
-                f"{premium('◆', 'buy')} <b>ANNEBELLA CREDIT STORE</b>\n{divider()}\n\n"
-                "<b>AVAILABLE PACKAGES</b>\n"
-                f"{premium('◆', 'credits')} 100 credits — ₹49\n{premium('◆', 'credits')} 500 credits — ₹199\n"
-                f"{premium('◆', 'credits')} 1000 credits — ₹349\n{premium('◆', 'credits')} 5000 credits — ₹999\n\n"
-                f"{premium('◆', 'upi')} Select UPI for a scannable payment QR.\n"
-                f"{premium('◆', 'usdt')} Select USDT for copy-ready Binance and network addresses.\n\n"
-                f"{premium('◆', 'check')} <b>PAYMENT VERIFICATION</b>\nAfter payment, send the transaction reference or screenshot here. Credits are released only after administrator approval.\n\n"
-                f"{premium('◆', 'support')} <b>SECURITY NOTICE</b>\nThe bot will never request your UPI PIN, OTP, wallet seed phrase, card PIN, or account password.",
-                parse_mode=ParseMode.HTML, reply_markup=buy_packages_keyboard(),
+                buy_choice_text(),
+                parse_mode=ParseMode.HTML, reply_markup=buy_type_keyboard(),
             )
         elif text == "MINI APP":
             row = user_summary(update.effective_user.id)
@@ -1053,7 +1299,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if not digits or int(digits) < 10:
             await update.message.reply_text("Enter a custom package of at least 10 credits.")
             return
-        context.user_data["payment"] = {"credits": int(digits), "price": None}
+        context.user_data["payment"] = {"item_type": "credit", "credits": int(digits), "price": None, "currency": "INR"}
         context.user_data["flow"] = "payment_method"
         await send_payment_methods(update.effective_message, context.user_data["payment"])
         return
@@ -1065,20 +1311,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 parse_mode=ParseMode.HTML
             )
             return
-        credits, reference = package["credits"], f"{package.get('method', 'manual').upper()}: {text.strip()}"
-        amount = package.get("price") or 0
-        with closing(db_connect()) as db:
-            db.execute(
-                "INSERT INTO payment_requests (telegram_id, credits, amount_inr, reference, created_at) VALUES (?, ?, ?, ?, ?)",
-                (update.effective_user.id, credits, amount, reference, int(time.time())),
-            )
-            db.commit()
+        reference = f"{package.get('method', 'manual').upper()}: {text.strip()}"
+        request_id = insert_payment_request(update.effective_user.id, package, reference)
+        await notify_admin_payment_request(context, request_id, update.effective_user.id, package, reference)
         context.user_data.pop("flow", None)
         context.user_data.pop("payment", None)
         await update.message.reply_text(
             f"{premium('◆', 'check')} <b>PAYMENT REQUEST RECEIVED</b>\n\n"
-            f"Credits requested: <b>{credits}</b>\nReference: <code>{reference}</code>\n\n"
-            "An administrator will verify the payment. Credits are added only after approval.",
+            f"Request: <b>#{request_id}</b>\nPackage: <b>{escape(package_title(package))}</b>\nReference: <code>{escape(reference)}</code>\n\n"
+            "An administrator will verify the payment. Your order activates only after approval.",
             parse_mode=ParseMode.HTML, reply_markup=menu(),
         )
         return
@@ -1205,29 +1446,25 @@ async def handle_payment_proof(update: Update, context: ContextTypes.DEFAULT_TYP
         file_id = update.message.document.file_id
         proof_type = "DOCUMENT"
     reference = f"{package.get('method', 'manual').upper()} {proof_type}: {file_id}"
-    with closing(db_connect()) as db:
-        cursor = db.execute(
-            "INSERT INTO payment_requests (telegram_id, credits, amount_inr, reference, created_at) VALUES (?, ?, ?, ?, ?)",
-            (update.effective_user.id, package["credits"], package.get("price") or 0, reference, int(time.time())),
-        )
-        request_id = cursor.lastrowid
-        db.commit()
+    request_id = insert_payment_request(update.effective_user.id, package, reference)
     for admin_id in {value.strip() for value in os.getenv("ADMIN_IDS", "").split(",") if value.strip().isdigit()}:
         try:
             await context.bot.forward_message(int(admin_id), update.effective_chat.id, update.message.message_id)
             await context.bot.send_message(
                 int(admin_id),
-                f"{premium('◆', 'buy')} <b>PAYMENT PROOF #{request_id}</b>\n\n"
-                f"User: <code>{update.effective_user.id}</code>\nPackage: <b>{package['credits']} credits</b>\n"
-                f"Method: <b>{package.get('method', 'manual').upper()}</b>\nReview it in the web admin panel.",
+                payment_request_text(request_id, update.effective_user.id, package, reference),
                 parse_mode=ParseMode.HTML,
+                reply_markup=payment_review_keyboard(request_id),
             )
         except Exception:
             logger.info("Could not forward payment proof to admin %s", admin_id)
     context.user_data.pop("flow", None)
     context.user_data.pop("payment", None)
     await update.message.reply_text(
-        f"{premium('◆', 'check')} <b>PAYMENT PROOF RECEIVED</b>\n\nRequest <b>#{request_id}</b> is awaiting administrator verification. Credits are added only after approval.",
+        f"{premium('◆', 'check')} <b>PAYMENT PROOF RECEIVED</b>\n{divider()}\n\n"
+        f"Request <b>#{request_id}</b> is awaiting administrator verification.\n"
+        f"Package: <b>{escape(package_title(package))}</b>\n\n"
+        "Your order activates only after approval.",
         parse_mode=ParseMode.HTML, reply_markup=dashboard_keyboard(),
     )
 
@@ -1341,16 +1578,40 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             logger.info("Ignored an expired callback query from user %s", update.effective_user.id)
             return
         raise
+    if query.data.startswith("adminpay:"):
+        if not is_admin_user(update.effective_user.id):
+            await query.answer("Administrator access required.", show_alert=True)
+            return
+        _prefix, action, raw_id = query.data.split(":", 2)
+        if not raw_id.isdigit():
+            await query.answer("Invalid payment request.", show_alert=True)
+            return
+        result = review_payment_record(int(raw_id), action)
+        if not result:
+            await query.answer("Already reviewed or missing.", show_alert=True)
+            return
+        approved = action == "approve"
+        await query.edit_message_text(
+            f"{premium('◆', 'check' if approved else 'warn')} <b>PAYMENT #{raw_id} {'APPROVED' if approved else 'DECLINED'}</b>\n{divider()}\n\n"
+            f"User: <code>{result['user_id']}</code>\n"
+            f"Type: <b>{escape(result['item_type'].upper())}</b>\n"
+            f"Package: <b>{escape(result['plan_name'] or str(result['credits']) + ' credits')}</b>\n"
+            f"Status: <b>{escape(result['status'].upper())}</b>",
+            parse_mode=ParseMode.HTML,
+        )
+        try:
+            await context.bot.send_message(
+                int(result["user_id"]),
+                review_user_message(int(raw_id), result, approved),
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception:
+            logger.info("Could not notify user %s about payment review", result["user_id"])
+        return
     if not await gate(update, context):
         return
     remember_user(update)
     if query.data in {"buy_100", "buy_500", "buy_1000", "buy_5000", "buy_custom"}:
-        packages = {
-            "buy_100": {"credits": 100, "price": 49},
-            "buy_500": {"credits": 500, "price": 199},
-            "buy_1000": {"credits": 1000, "price": 349},
-            "buy_5000": {"credits": 5000, "price": 999},
-        }
         if query.data == "buy_custom":
             context.user_data["flow"] = "custom_credit"
             await query.edit_message_text(
@@ -1358,19 +1619,28 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 parse_mode=ParseMode.HTML,
             )
         else:
-            context.user_data["payment"] = packages[query.data]
+            context.user_data["payment"] = CREDIT_PACKAGES[query.data].copy()
             context.user_data["flow"] = "payment_method"
-            await query.edit_message_text(
-                f"{premium('◆', 'payment')} <b>SELECT PAYMENT METHOD</b>\n{divider()}\n\n"
-                f"{premium('◆', 'credits')} <b>PACKAGE:</b> {packages[query.data]['credits']} CREDITS\n"
-                f"{premium('◆', 'money')} <b>PAYABLE AMOUNT:</b> ₹{packages[query.data]['price']}\n\n"
-                f"{premium('◆', 'upi')} UPI QR or {premium('◆', 'usdt')} USDT wallet details choose karo.",
-                parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup([[
-                    styled_button("UPI PAYMENT", "paymethod_upi", "success", "upi"),
-                    styled_button("USDT PAYMENT", "paymethod_usdt", "primary", "usdt"),
-                ]]),
-            )
+            await send_payment_methods(query.message, context.user_data["payment"])
+            try:
+                await query.delete_message()
+            except Exception:
+                pass
+        return
+    if query.data in API_PLANS:
+        context.user_data["payment"] = API_PLANS[query.data].copy()
+        context.user_data["flow"] = "payment_method"
+        await send_payment_methods(query.message, context.user_data["payment"])
+        try:
+            await query.delete_message()
+        except Exception:
+            pass
+        return
+    if query.data == "buy_credit_menu":
+        await query.edit_message_text(credit_store_text(), parse_mode=ParseMode.HTML, reply_markup=buy_packages_keyboard())
+        return
+    if query.data == "buy_api_menu":
+        await query.edit_message_text(api_store_text(), parse_mode=ParseMode.HTML, reply_markup=api_packages_keyboard())
         return
     if query.data in {"paymethod_upi", "paymethod_usdt"}:
         package = context.user_data.get("payment")
@@ -1382,16 +1652,16 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         context.user_data["flow"] = "payment_reference"
         if method == "upi":
             destination = os.getenv("PAYMENT_UPI_ID", "gauravpayout@fam").strip()
-            amount = "₹" + str(package["price"]) if package.get("price") is not None else "Custom/manual"
+            qr_amount = package.get("price") if package.get("currency") == "INR" else None
             caption = (
                 f"{premium('◆', 'payment')} <b>ANNEBELLA PAYMENT QR</b>\n{divider()}\n\n"
-                f"{premium('◆', 'credits')} <b>PACKAGE:</b> {package['credits']} CREDITS\n"
-                f"{premium('◆', 'money')} <b>AMOUNT:</b> {amount}\n"
+                f"{premium('◆', 'credits')} <b>PACKAGE:</b> {escape(package_title(package))}\n"
+                f"{premium('◆', 'money')} <b>AMOUNT:</b> {escape(package_price_text(package))}\n"
                 f"{premium('◆', 'upi')} <b>UPI:</b> <code>{destination}</code>\n\n"
                 f"{premium('◆', 'history')} Scan the QR or copy the UPI ID, complete payment, then send the successful screenshot here for administrator approval."
             )
             await query.message.reply_photo(
-                photo=payment_qr_url(package["credits"], package.get("price")),
+                photo=payment_qr_url(int(package.get("credits", 0)), qr_amount),
                 caption=small_caps_html(caption),
                 parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup([[copy_button("COPY UPI ID", destination, "success", "upi")]]),
@@ -1406,8 +1676,8 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
         await query.edit_message_text(
             f"{premium('◆', 'usdt')} <b>USDT PAYMENT</b>\n{divider()}\n\n"
-            f"{premium('◆', 'credits')} <b>PACKAGE:</b> {package['credits']} CREDITS\n"
-            f"{premium('◆', 'money')} <b>AMOUNT:</b> {'₹' + str(package['price']) if package.get('price') is not None else 'CUSTOM / MANUAL'}\n\n"
+            f"{premium('◆', 'credits')} <b>PACKAGE:</b> {escape(package_title(package))}\n"
+            f"{premium('◆', 'money')} <b>AMOUNT:</b> {escape(package_price_text(package))}\n\n"
             f"{instructions}\n\n{premium('◆', 'history')} Select the exact sender network, use a copy button below, complete payment, then send the successful screenshot here for approval.",
             parse_mode=ParseMode.HTML,
             reply_markup=usdt_payment_keyboard(),
@@ -1478,13 +1748,9 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
     elif query.data == "buy":
         await query.edit_message_text(
-            f"{premium('◆', 'buy')} <b>ANNEBELLA CREDIT STORE</b>\n{divider()}\n\n"
-            f"{premium('◆', 'credits')} <b>AVAILABLE PACKAGES</b>\n"
-            f"{premium('◆', 'credits')} 100 credits — ₹49\n{premium('◆', 'credits')} 500 credits — ₹199\n"
-            f"{premium('◆', 'credits')} 1000 credits — ₹349\n{premium('◆', 'credits')} 5000 credits — ₹999\n\n"
-            f"{premium('◆', 'check')} Select the required credit quantity below. Package buttons contain credits only; complete pricing and payment information is shown above.",
+            buy_choice_text(),
             parse_mode=ParseMode.HTML,
-            reply_markup=buy_packages_keyboard(),
+            reply_markup=buy_type_keyboard(),
         )
     elif query.data == "support":
         context.user_data["flow"] = "support"
@@ -1641,6 +1907,101 @@ def miniapp_check():
     }
 
 
+def current_api_user():
+    api_key = request.headers.get("X-API-Key", "").strip() or request.args.get("api_key", "").strip()
+    if not api_key:
+        return None, {"ok": False, "error": "Missing X-API-Key header."}, 401
+    now = int(time.time())
+    with closing(db_connect()) as db:
+        row = db.execute(
+            """
+            SELECT k.telegram_id, k.plan_name, k.expires_at, u.credits, u.banned
+            FROM api_keys k
+            JOIN users u ON u.telegram_id = k.telegram_id
+            WHERE k.api_key = ? AND k.active = 1
+            """,
+            (api_key,),
+        ).fetchone()
+    if not row:
+        return None, {"ok": False, "error": "Invalid API key."}, 403
+    if row[4]:
+        return None, {"ok": False, "error": "Account is suspended."}, 403
+    if row[2] < now:
+        return None, {"ok": False, "error": "API plan expired. Renew access from the bot."}, 403
+    return row, None, None
+
+
+@web.get("/api/v1/me")
+def public_api_me():
+    row, error, status = current_api_user()
+    if error:
+        return error, status
+    return {
+        "ok": True,
+        "telegram_id": row[0],
+        "plan": row[1],
+        "expires_at": row[2],
+        "credits": row[3],
+        "check_cost": CHECK_COST,
+        "services": SERVICES,
+    }
+
+
+@web.post("/api/v1/check")
+def public_api_check():
+    row, error, status = current_api_user()
+    if error:
+        return error, status
+    user_id, _plan, _expires_at, credits, _banned = row
+    data = request.get_json(silent=True) or {}
+    service = str(data.get("service", "")).strip()
+    normalized = re.sub(r"[\s()-]", "", str(data.get("number", "")))
+    if service not in SERVICES:
+        return {"ok": False, "error": "Select a valid checker service.", "services": SERVICES}, 400
+    if not PHONE_RE.fullmatch(normalized):
+        return {"ok": False, "error": "Enter 8-15 digits, optionally starting with +."}, 400
+    if credits < CHECK_COST:
+        return {"ok": False, "error": f"Insufficient credits. This check requires {CHECK_COST} credits."}, 402
+    try:
+        _possible, _valid, e164, region, original_carrier, zones, line_type = describe_phone(normalized)
+    except phonenumbers.NumberParseException:
+        return {"ok": False, "error": "Number parsing failed."}, 400
+
+    checker_result, checker_error = registration_lookup_sync(service, e164)
+    charged = checker_error is None
+    suffix = normalized[-4:]
+    now = int(time.time())
+    with closing(db_connect()) as db:
+        db.execute(
+            "INSERT INTO searches (telegram_id, service, phone_suffix, searched_at) VALUES (?, ?, ?, ?)",
+            (user_id, service, suffix, now),
+        )
+        if charged:
+            db.execute("UPDATE users SET credits = credits - ?, last_seen = ? WHERE telegram_id = ?", (CHECK_COST, now, user_id))
+            db.execute(
+                "INSERT INTO credit_transactions (telegram_id, amount, kind, note, created_at) VALUES (?, ?, 'api_lookup', ?, ?)",
+                (user_id, -CHECK_COST, f"API {service}", now),
+            )
+        else:
+            db.execute("UPDATE users SET last_seen = ? WHERE telegram_id = ?", (now, user_id))
+        latest_credits = db.execute("SELECT credits FROM users WHERE telegram_id = ?", (user_id,)).fetchone()[0]
+        db.commit()
+    return {
+        "ok": True,
+        "service": service,
+        "number_suffix": suffix,
+        "status": "temporarily_unavailable" if checker_error else ("registered" if checker_result else "not_registered"),
+        "registered": checker_result if checker_error is None else None,
+        "message": checker_error or ("REGISTERED" if checker_result else "NOT REGISTERED"),
+        "charged": CHECK_COST if charged else 0,
+        "credits": latest_credits,
+        "region": region,
+        "number_type": line_type,
+        "carrier": original_carrier,
+        "timezone": zones,
+    }
+
+
 @web.route("/admin/login", methods=["GET", "POST"])
 def admin_login():
     if request.method == "POST":
@@ -1675,7 +2036,7 @@ def admin_panel():
         unlocked_count = db.execute("SELECT COUNT(*) FROM users WHERE mini_app_unlocked = 1").fetchone()[0]
         enabled_channel_count = db.execute("SELECT COUNT(*) FROM channels WHERE enabled = 1").fetchone()[0]
         approved_revenue = db.execute("SELECT COALESCE(SUM(amount_inr), 0) FROM payment_requests WHERE status = 'approved'").fetchone()[0]
-        payments = db.execute("SELECT id, telegram_id, credits, amount_inr, reference, status, created_at FROM payment_requests ORDER BY id DESC LIMIT 50").fetchall()
+        payments = db.execute("SELECT id, telegram_id, credits, amount_inr, reference, status, created_at, item_type, plan_name, amount_label FROM payment_requests ORDER BY id DESC LIMIT 50").fetchall()
         tickets = db.execute("SELECT id, telegram_id, message, status, created_at FROM support_tickets ORDER BY id DESC LIMIT 50").fetchall()
         gift_cards = db.execute("SELECT id, code, credits, used_by, used_at, created_at FROM gift_cards ORDER BY id DESC LIMIT 100").fetchall()
         recent_searches = db.execute("SELECT telegram_id, service, phone_suffix, searched_at FROM searches ORDER BY id DESC LIMIT 20").fetchall()
@@ -1741,7 +2102,12 @@ def adjust_credits(user_id):
             )
             db.commit()
         flash(f"Credit balance adjusted by {amount:+d}")
-        notify_user(user_id, f"{premium('◆', 'credits')} <b>CREDIT BALANCE UPDATED</b>\n\nAdministrator adjustment: <b>{amount:+d} credits</b>. Open your profile to view the latest balance.")
+        notify_user(
+            user_id,
+            f"{premium('◆', 'credits')} <b>CREDIT BALANCE UPDATED</b>\n{divider()}\n\n"
+            f"{premium('◆', 'profile')} Administrator adjustment: <b>{amount:+d} credits</b>.\n"
+            f"{premium('◆', 'refresh')} Open your profile to view the latest balance.",
+        )
     return redirect(url_for("admin_panel"))
 
 
@@ -1750,25 +2116,13 @@ def adjust_credits(user_id):
 def review_payment(payment_id, action):
     if action not in {"approve", "reject"}:
         return redirect(url_for("admin_panel"))
-    with closing(db_connect()) as db:
-        payment = db.execute(
-            "SELECT telegram_id, credits, status FROM payment_requests WHERE id = ?", (payment_id,)
-        ).fetchone()
-        if payment and payment[2] == "pending":
-            status = "approved" if action == "approve" else "rejected"
-            db.execute("UPDATE payment_requests SET status = ?, reviewed_at = ? WHERE id = ?", (status, int(time.time()), payment_id))
-            if action == "approve":
-                db.execute("UPDATE users SET credits = credits + ? WHERE telegram_id = ?", (payment[1], payment[0]))
-                db.execute(
-                    "INSERT INTO credit_transactions (telegram_id, amount, kind, note, created_at) VALUES (?, ?, 'purchase', ?, ?)",
-                    (payment[0], payment[1], f"Approved payment #{payment_id}", int(time.time())),
-                )
-            db.commit()
-            flash(f"Payment #{payment_id} {status}")
-            if action == "approve":
-                notify_user(payment[0], f"{premium('◆', 'check')} <b>PAYMENT APPROVED</b>\n\n<b>{payment[1]} credits</b> were added to your Annebella Checker account.")
-            else:
-                notify_user(payment[0], f"{premium('◆', 'support')} <b>PAYMENT NOT APPROVED</b>\n\nRequest #{payment_id} could not be verified. Please contact support with the correct transaction reference.")
+    result = review_payment_record(payment_id, action)
+    if result:
+        approved = action == "approve"
+        flash(f"Payment #{payment_id} {result['status']}")
+        notify_user(result["user_id"], review_user_message(payment_id, result, approved))
+    else:
+        flash(f"Payment #{payment_id} is already reviewed or missing")
     return redirect(url_for("admin_panel"))
 
 

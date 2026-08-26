@@ -26,6 +26,9 @@ A Telegram registration checker inspired by the supplied reference. Users select
 - 150 one-time welcome credits and 5-credit determined lookups
 - 20-credit deep-link referral rewards with self-referral and duplicate-account protection
 - TempSms-style UPI/USDT credit packages, screenshot/reference submissions, and administrator approval
+- Telegram admin approval cards with premium approve/decline buttons for payment screenshots and references
+- API Access store with weekly, monthly, and yearly plans; approved orders generate a private `X-API-Key`
+- Public customer API endpoints at `/api/v1/me` and `/api/v1/check`
 - 1000-credit permanent Mini App unlock with signed launch links
 - Responsive Mini App for balance, referral, service-directory and recent-activity views
 - One-time gift-card generation, administration and redemption
@@ -93,7 +96,16 @@ If membership always shows missing, confirm the chat ID and bot administrator st
 
 New users receive 150 credits. A determined provider lookup costs 5 credits; unavailable or undetermined responses are not charged. A referrer receives 20 credits only when a genuinely new Telegram account starts through `https://t.me/<BOT_USERNAME>?start=ref_<telegram_id>`.
 
-The Buy Credits flow supports 100/500/1000/5000 packages, custom quantities, UPI and USDT destinations, transaction references, and screenshot/document proof. An administrator must independently verify the transaction in `/admin` before approving it. The bot never asks users for an OTP, UPI PIN, password, wallet seed phrase, or card details.
+The Buy Credit flow first lets users choose **API Access** or **Credit Balance**. Credit Balance supports 100/500/1000/5000 packages, custom quantities, UPI and USDT destinations, transaction references, and screenshot/document proof. API Access supports weekly, monthly, and yearly plans; approval generates a private API key for the user. An administrator can approve or decline from Telegram inline buttons or from `/admin`. The bot never asks users for an OTP, UPI PIN, password, wallet seed phrase, or card details.
+
+## Customer API
+
+Approved API customers receive an `ABAPI_...` key. Use it with:
+
+- `GET /api/v1/me` with header `X-API-Key: <key>`
+- `POST /api/v1/check` with header `X-API-Key: <key>` and JSON body `{"service":"Flipkart","number":"+919876543210"}`
+
+API plan access must be active and the user must have enough checker credits. A determined API lookup deducts the configured `CHECK_COST`.
 
 ## Advanced administrator panel
 

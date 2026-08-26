@@ -15,6 +15,7 @@
     "SUPPORT_URL": {"description": "Telegram support chat URL", "value": "https://t.me/annebella"},
     "PUBLIC_APP_URL": {"description": "Public web app root URL", "value": "https://web-production-b80e9.up.railway.app"},
     "MINI_APP_URL": {"description": "Public Mini App URL", "value": "https://web-production-b80e9.up.railway.app/miniapp"},
+    "PUBLIC_API_BASE_URL": {"description": "Public API root URL used in generated customer API docs", "value": "https://web-production-b80e9.up.railway.app"},
     "SIGNUP_CREDITS": {"value": "150"},
     "REFERRAL_CREDITS": {"value": "20"},
     "CHECK_COST": {"value": "5"},
