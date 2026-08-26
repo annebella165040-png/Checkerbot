@@ -518,6 +518,13 @@ def premium(emoji: str, name: str = "sparkle") -> str:
     return f'<tg-emoji emoji-id="{emoji_id}">{entity_text}</tg-emoji>'
 
 
+def premium_mark(name: str = "sparkle", mark: str = "◆") -> str:
+    emoji_id = PREMIUM_EMOJI_ID or EMOJI_IDS.get(name, "")
+    if not emoji_id:
+        return mark
+    return f'<tg-emoji emoji-id="{emoji_id}">{mark}</tg-emoji>'
+
+
 def divider() -> str:
     return "〰️" * 10
 
@@ -831,21 +838,21 @@ def api_service_page_text(page: int = 0) -> str:
     page_items = catalog[start:start + SERVICE_PAGE_SIZE]
     active_names = ", ".join(escape(name) for name in SERVICES)
     body = "\n".join(
-        f"{start + index:03d}. {'✅' if item['active'] else '🔌'} {escape(item['name'])}"
+        f"{start + index:03d}. {premium_mark('check' if item['active'] else 'link')} {escape(item['name'])}"
         for index, item in enumerate(page_items, 1)
     )
     live_block = (
-        f"{premium('?', 'check')} <b>LIVE CHECKERS:</b> {len(SERVICES)}\n{active_names}\n\n"
+        f"{premium_mark('check')} <b>LIVE CHECKERS:</b> {len(SERVICES)}\n{active_names}\n\n"
         if page == 0 else ""
     )
     return (
-        f"{premium('?', 'globe')} <b>ALL AVAILABLE SERVICES</b>\n{divider()}\n\n"
+        f"{premium_mark('globe')} <b>ALL AVAILABLE SERVICES</b>\n{divider()}\n\n"
         f"{live_block}"
-        f"{premium('?', 'search')} <b>CLEAN SERVICE LIST:</b> {len(catalog)}\n"
-        f"{premium('?', 'help')} <b>PAGE:</b> {page + 1}/{total_pages}\n\n"
+        f"{premium_mark('search')} <b>CLEAN SERVICE LIST:</b> {len(catalog)}\n"
+        f"{premium_mark('help')} <b>PAGE:</b> {page + 1}/{total_pages}\n\n"
         f"{body}\n\n"
         f"{divider()}\n"
-        f"{premium('?', 'phone')} Type service name/keyword, example: <code>whatsapp</code>, <code>gmail</code>, <code>telegram</code>."
+        f"{premium_mark('phone')} Type service name/keyword, example: <code>whatsapp</code>, <code>gmail</code>, <code>telegram</code>."
     )
 
 
@@ -2206,6 +2213,8 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if service not in SERVICES:
             return
         context.user_data["service"] = service
+        context.user_data.pop("flow", None)
+        context.user_data.pop("api_service", None)
         await query.edit_message_text(
             f"{premium('◆', 'search')} <b>{service.upper()} CHECKER</b>\n\nSend the authorized mobile number with country code. Example: <code>+919876543210</code>",
             parse_mode=ParseMode.HTML,
