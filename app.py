@@ -838,21 +838,21 @@ def api_service_page_text(page: int = 0) -> str:
     page_items = catalog[start:start + SERVICE_PAGE_SIZE]
     active_names = ", ".join(escape(name) for name in SERVICES)
     body = "\n".join(
-        f"{start + index:03d}. ◆ {escape(item['name'])}"
+        f"{start + index:03d}. {escape(item['name'])}"
         for index, item in enumerate(page_items, 1)
     )
     live_block = (
-        f"◆ <b>LIVE CHECKERS:</b> {len(SERVICES)}\n{active_names}\n\n"
+        f"{premium('?', 'check')} <b>LIVE CHECKERS:</b> {len(SERVICES)}\n{active_names}\n\n"
         if page == 0 else ""
     )
     return (
-        f"◆ <b>ALL AVAILABLE SERVICES</b>\n{divider()}\n\n"
+        f"{premium('?', 'globe')} <b>ALL AVAILABLE SERVICES</b>\n{divider()}\n\n"
         f"{live_block}"
-        f"◆ <b>CLEAN SERVICE LIST:</b> {len(catalog)}\n"
-        f"◆ <b>PAGE:</b> {page + 1}/{total_pages}\n\n"
+        f"{premium('?', 'search')} <b>CLEAN SERVICE LIST:</b> {len(catalog)}\n"
+        f"{premium('?', 'help')} <b>PAGE:</b> {page + 1}/{total_pages}\n\n"
         f"{body}\n\n"
         f"{divider()}\n"
-        f"◆ Type service name/keyword, example: <code>whatsapp</code>, <code>gmail</code>, <code>telegram</code>."
+        f"{premium('?', 'phone')} Type service name/keyword, example: <code>whatsapp</code>, <code>gmail</code>, <code>telegram</code>."
     )
 
 
