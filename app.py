@@ -17,7 +17,7 @@ from phonenumbers import carrier, geocoder, timezone
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, Update
 from telegram.constants import ChatMemberStatus, ChatType, ParseMode
-from telegram.error import BadRequest
+from telegram.error import BadRequest, Forbidden, TimedOut
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, ExtBot, MessageHandler, filters
 
 
@@ -549,11 +549,35 @@ def api_service_matches(query: str, limit: int = 25):
     return matches[:limit]
 
 
+def api_service_guidance(name: str, detail: str) -> str:
+    haystack = f"{name} {detail}".lower()
+    if any(word in haystack for word in {"gmail", "email", "sendgrid", "mailchimp", "mailgun", "brevo", "postmark", "klaviyo"}):
+        return "Send authorized email/OAuth access; supports mailbox, message metadata, delivery or campaign lookups."
+    if any(word in haystack for word in {"instagram", "facebook", "threads", "linkedin", "snapchat", "x / twitter", "tiktok", "pinterest", "reddit", "tumblr", "mastodon", "bluesky"}):
+        return "Send username/profile URL or OAuth-approved account access; public profile/content lookup only."
+    if any(word in haystack for word in {"discord", "telegram", "slack", "teams", "line", "viber", "messenger", "whatsapp"}):
+        return "Send bot user ID, chat/server/channel ID, or authorized business/OAuth data."
+    if any(word in haystack for word in {"website", "url", "domain", "whois", "dns", "safe browsing", "virustotal", "urlscan", "shodan", "abuseipdb", "ipinfo", "ipapi", "securitytrails", "builtwith", "wappalyzer"}):
+        return "Send URL, domain or IP; supports status, SSL, technology, reputation or phishing/security checks."
+    if any(word in haystack for word in {"payment", "pay", "stripe", "paypal", "razorpay", "paytm", "cashfree", "phonepe", "square"}):
+        return "Send order/payment/transaction ID with merchant API credentials for payment status lookup."
+    if any(word in haystack for word in {"shop", "amazon", "commerce", "marketplace", "seller", "storefront", "woocommerce", "shopify", "ebay", "etsy", "walmart", "flipkart"}):
+        return "Send product URL/SKU/order ID/seller ID with official commerce API access."
+    if any(word in haystack for word in {"finance", "stock", "crypto", "coin", "trading", "forex", "market", "exchange"}):
+        return "Send symbol, coin, exchange pair or authorized account token for market/account lookup."
+    if any(word in haystack for word in {"maps", "places", "weather", "travel", "flight", "booking", "expedia", "uber", "lyft"}):
+        return "Send place, address, coordinates, city, route, flight or booking reference."
+    if any(word in haystack for word in {"github", "gitlab", "bitbucket", "cloud", "hosting", "firebase", "supabase", "railway", "vercel", "netlify", "aws"}):
+        return "Send repo/project/deployment/resource ID with authorized API credentials."
+    return "Send ID, username, URL, account token or official API credential depending on service."
+
+
 def api_service_search_text(query: str = "") -> str:
     matches = api_service_matches(query)
     title = "POPULAR API SERVICE DIRECTORY" if not query.strip() else f"API SERVICE SEARCH: {escape(query[:40])}"
     lines = "\n".join(
-        f"{index}. <b>{escape(name)}</b> - {escape(detail)}"
+        f"{index}. <b>{escape(name)}</b> - {escape(detail)}\n"
+        f"   <i>Input:</i> {escape(api_service_guidance(name, detail))}"
         for index, (name, detail) in enumerate(matches, 1)
     ) or "No matching service found. Try words like <code>social</code>, <code>payment</code>, <code>website</code>, <code>email</code>, <code>discord</code>, or <code>google</code>."
     return (
@@ -562,7 +586,7 @@ def api_service_search_text(query: str = "") -> str:
         f"{premium('◆', 'check')} <b>MATCHES SHOWN:</b> {len(matches)}\n\n"
         f"{lines}\n\n"
         f"{divider()}\n"
-        f"{premium('◆', 'warn')} <b>NOTE:</b> These are API/service integrations. Phone or email based account-registration checking is not publicly allowed for most big apps. Use official APIs only for permitted lookups, OAuth login, public profile checks, website safety, payments, messaging, or analytics."
+        f"{premium('◆', 'warn')} <b>NEXT STEP:</b> Active number checks work from checker buttons. Directory services show what can be searched with official API/OAuth access. Phone/email account-registration checking is not publicly allowed for most big apps."
     )
 
 
@@ -992,10 +1016,19 @@ def insert_payment_request(user_id: int, package: dict, reference: str) -> int:
         return int(request_id)
 
 
-def payment_request_text(payment_id: int, user_id: int, package: dict, reference: str) -> str:
+def telegram_user_label(user) -> str:
+    if not user:
+        return "Telegram User"
+    username = f"@{user.username}" if getattr(user, "username", None) else "No username"
+    first_name = getattr(user, "first_name", None) or "Telegram User"
+    return f"{first_name} ({username})"
+
+
+def payment_request_text(payment_id: int, user_id: int, package: dict, reference: str, user_label: str = "Telegram User") -> str:
     return (
         f"{premium('◆', 'payment')} <b>NEW PAYMENT REQUEST #{payment_id}</b>\n{divider()}\n\n"
-        f"{premium('◆', 'profile')} <b>USER:</b> <code>{user_id}</code>\n"
+        f"{premium('◆', 'profile')} <b>USER:</b> {escape(user_label)}\n"
+        f"{premium('◆', 'id')} <b>TELEGRAM ID:</b> <code>{user_id}</code>\n"
         f"{premium('◆', 'buy')} <b>TYPE:</b> {escape(package.get('item_type', 'credit').upper())}\n"
         f"{premium('◆', 'credits')} <b>PACKAGE:</b> {escape(package_title(package))}\n"
         f"{premium('◆', 'money')} <b>AMOUNT:</b> {escape(package_price_text(package))}\n"
@@ -1004,12 +1037,12 @@ def payment_request_text(payment_id: int, user_id: int, package: dict, reference
     )
 
 
-async def notify_admin_payment_request(context: ContextTypes.DEFAULT_TYPE, payment_id: int, user_id: int, package: dict, reference: str) -> None:
+async def notify_admin_payment_request(context: ContextTypes.DEFAULT_TYPE, payment_id: int, user_id: int, package: dict, reference: str, user_label: str = "Telegram User") -> None:
     for admin_id in {value.strip() for value in os.getenv("ADMIN_IDS", "").split(",") if value.strip().isdigit()}:
         try:
             await context.bot.send_message(
                 int(admin_id),
-                payment_request_text(payment_id, user_id, package, reference),
+                payment_request_text(payment_id, user_id, package, reference, user_label),
                 parse_mode=ParseMode.HTML,
                 reply_markup=payment_review_keyboard(payment_id),
             )
@@ -1313,7 +1346,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
         reference = f"{package.get('method', 'manual').upper()}: {text.strip()}"
         request_id = insert_payment_request(update.effective_user.id, package, reference)
-        await notify_admin_payment_request(context, request_id, update.effective_user.id, package, reference)
+        await notify_admin_payment_request(
+            context,
+            request_id,
+            update.effective_user.id,
+            package,
+            reference,
+            telegram_user_label(update.effective_user),
+        )
         context.user_data.pop("flow", None)
         context.user_data.pop("payment", None)
         await update.message.reply_text(
@@ -1447,17 +1487,27 @@ async def handle_payment_proof(update: Update, context: ContextTypes.DEFAULT_TYP
         proof_type = "DOCUMENT"
     reference = f"{package.get('method', 'manual').upper()} {proof_type}: {file_id}"
     request_id = insert_payment_request(update.effective_user.id, package, reference)
+    caption = payment_request_text(request_id, update.effective_user.id, package, reference, telegram_user_label(update.effective_user))
     for admin_id in {value.strip() for value in os.getenv("ADMIN_IDS", "").split(",") if value.strip().isdigit()}:
         try:
-            await context.bot.forward_message(int(admin_id), update.effective_chat.id, update.message.message_id)
-            await context.bot.send_message(
-                int(admin_id),
-                payment_request_text(request_id, update.effective_user.id, package, reference),
-                parse_mode=ParseMode.HTML,
-                reply_markup=payment_review_keyboard(request_id),
-            )
+            if update.message.photo:
+                await context.bot.send_photo(
+                    int(admin_id),
+                    photo=file_id,
+                    caption=small_caps_html(caption),
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=payment_review_keyboard(request_id),
+                )
+            else:
+                await context.bot.send_document(
+                    int(admin_id),
+                    document=file_id,
+                    caption=small_caps_html(caption),
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=payment_review_keyboard(request_id),
+                )
         except Exception:
-            logger.info("Could not forward payment proof to admin %s", admin_id)
+            logger.info("Could not deliver payment proof to admin %s", admin_id)
     context.user_data.pop("flow", None)
     context.user_data.pop("payment", None)
     await update.message.reply_text(
@@ -2182,6 +2232,12 @@ async def telegram_error_handler(update: object, context: ContextTypes.DEFAULT_T
     error = context.error
     if isinstance(error, BadRequest) and "message is not modified" in str(error).lower():
         return
+    if isinstance(error, (Forbidden, TimedOut)):
+        logger.info("Ignored Telegram delivery/network error: %s", error)
+        return
+    if isinstance(error, BadRequest) and "message to be replied not found" in str(error).lower():
+        logger.info("Ignored stale Telegram reply target")
+        return
     logger.error("Unhandled Telegram update error: %s", error, exc_info=error)
 
 
@@ -2201,7 +2257,7 @@ def main() -> None:
     application.add_error_handler(telegram_error_handler)
     threading.Thread(target=run_web, daemon=True).start()
     logger.info("Starting %s", BOT_NAME)
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
 if __name__ == "__main__":
