@@ -37,7 +37,7 @@ API_DIRECTORY = [
     ("eKYCPro WhatsApp Number Checker", "Phone registration checker provider; service_type ws; send phone number"),
     ("eKYCPro WhatsApp Avatar Checker", "Phone registration/avatar checker provider; service_type ws_avatar; send phone number"),
     ("eKYCPro WhatsApp Business Checker", "Phone business registration checker provider; service_type ws_business; send phone number"),
-    ("eKYCPro Telegram Number Checker", "Phone registration checker provider; service_type tg; send phone number"),
+    ("eKYCPro Telegram Number Checker", "Phone registration checker provider; service_type telegram; send phone number"),
     ("eKYCPro Facebook Phone Checker", "Phone registration checker provider; service_type facebook; send phone number"),
     ("eKYCPro Instagram Phone Checker", "Phone registration checker provider; service_type instagram; send phone number"),
     ("eKYCPro Threads Phone Checker", "Phone registration checker provider; service_type threads; send phone number"),
@@ -709,8 +709,30 @@ def api_service_input_label(name: str, detail: str) -> str:
     return "ID, username, URL, phone number, email, or official API detail"
 
 
+def indexed_provider_service_type(name: str, detail: str) -> str | None:
+    match = re.search(r"service_type\s+([a-z0-9_]+)", detail.lower())
+    if match:
+        return match.group(1)
+    fallback = {
+        "facebook": "facebook",
+        "instagram": "instagram",
+        "threads": "threads",
+        "x / twitter": "twitter",
+        "apple imessage": "apple",
+        "viber": "viber",
+        "zalo": "zalo",
+        "band": "band",
+        "goto": "goto",
+        "indiatimes": "indiatimes",
+        "headhunter": "hh",
+        "netflix": "netflix",
+        "spotify": "spotify_email",
+    }
+    return fallback.get(name.lower())
+
+
 def api_service_cost(name: str, detail: str) -> int:
-    return CHECK_COST if "live annebella checker available" in detail.lower() else 0
+    return CHECK_COST if indexed_provider_service_type(name, detail) and os.getenv("EKYCPRO_API_KEY", "").strip() else 0
 
 
 def api_service_plain_input_label(name: str, detail: str) -> str:
@@ -727,7 +749,7 @@ def api_service_plain_input_label(name: str, detail: str) -> str:
 def api_service_select_text(name: str, detail: str) -> str:
     label = api_service_plain_input_label(name, detail)
     example = (
-        "\nExample: <code>gourav165040@gmail.com</code>" if "email" in label.lower()
+        "\nExample: <code>user48291@example.com</code>" if "email" in label.lower()
         else "\nExample: <code>+919876543210</code>" if "number" in label.lower() or "mobile" in label.lower()
         else ""
     )
@@ -739,7 +761,7 @@ def api_service_select_text(name: str, detail: str) -> str:
     )
 
 
-def api_service_input_result_text(name: str, detail: str, value: str) -> str:
+def api_service_input_result_text(name: str, detail: str, value: str, checker_result=None, checker_error: str | None = None, charged: int = 0) -> str:
     safe_value = escape(value[:120])
     provider_registration = any(word in f"{name} {detail}".lower() for word in {
         "phone registration checker", "email registration checker", "number checker", "phone existence checker", "osint-style account presence",
@@ -747,19 +769,27 @@ def api_service_input_result_text(name: str, detail: str, value: str) -> str:
     registration_blocked = any(word in f"{name} {detail}".lower() for word in {
         "gmail", "instagram", "facebook", "threads", "linkedin", "snapchat", "x / twitter", "discord", "whatsapp", "telegram", "tiktok",
     })
-    status = (
-        "Provider service indexed. Add a valid provider API key in server config to return live registered/not-registered results."
-        if provider_registration else
-        "Official API/OAuth access required. Public account-registration checking is not available for this service."
-        if registration_blocked
-        else "Input accepted. This service can be integrated through its official API or configured provider."
-    )
+    if checker_error:
+        status = checker_error
+    elif checker_result is True:
+        status = "REGISTERED"
+    elif checker_result is False:
+        status = "NOT REGISTERED"
+    else:
+        status = (
+            "Provider service indexed. Add a valid provider API key in server config to return live registered/not-registered results."
+            if provider_registration else
+            "Official API/OAuth access required. Public account-registration checking is not available for this service."
+            if registration_blocked
+            else "Input accepted. This service can be integrated through its official API or configured provider."
+        )
+    status_icon = "check" if checker_result is True else "support" if checker_result is False else "warn" if checker_error else "check"
     return (
         f"{premium('◆', 'search')} <b>{escape(name.upper())} CHECKER</b>\n{divider()}\n\n"
         f"{premium('◆', 'profile')} <b>SUBMITTED:</b> <code>{safe_value}</code>\n"
         f"{premium('◆', 'globe')} <b>SERVICE:</b> {escape(name)}\n"
-        f"{premium('◆', 'credits')} <b>LOOKUP CHARGE:</b> 0 credits\n\n"
-        f"{premium('◆', 'check')} <b>CHECKUP STATUS:</b>\n{escape(status)}\n\n"
+        f"{premium('◆', 'credits')} <b>LOOKUP CHARGE:</b> {charged} credits\n\n"
+        f"{premium('◆', status_icon)} <b>CHECKUP STATUS:</b>\n{escape(status)}\n\n"
         f"{premium('◆', 'help')} <b>LOOKUP TYPE:</b>\n{escape(api_service_guidance(name, detail))}"
     )
 
@@ -1684,10 +1714,39 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 parse_mode=ParseMode.HTML,
             )
             return
+        cost = api_service_cost(name, detail)
+        if cost:
+            with closing(db_connect()) as db:
+                credits = db.execute("SELECT credits FROM users WHERE telegram_id = ?", (update.effective_user.id,)).fetchone()[0]
+            if credits < cost:
+                await update.message.reply_text(
+                    f"{premium('◆', 'credits')} <b>INSUFFICIENT CREDITS</b>\n\nThis lookup requires {cost} credits. Purchase credits or invite friends to continue.",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=InlineKeyboardMarkup([[styled_button("BUY CREDITS", "buy", "success", "buy"), styled_button("REFER & EARN", "referral", "primary", "referral")]]),
+                )
+                return
+        checker_result, checker_error = await indexed_provider_lookup(name, detail, text)
+        charged = 0
+        if cost and checker_error is None and checker_result is not None:
+            with closing(db_connect()) as db:
+                debited = db.execute(
+                    "UPDATE users SET credits = credits - ? WHERE telegram_id = ? AND credits >= ?",
+                    (cost, update.effective_user.id, cost),
+                )
+                if debited.rowcount == 1:
+                    db.execute(
+                        "INSERT INTO credit_transactions (telegram_id, amount, kind, note, created_at) VALUES (?, ?, 'lookup', ?, ?)",
+                        (update.effective_user.id, -cost, name, int(time.time())),
+                    )
+                    db.commit()
+                    charged = cost
+                else:
+                    db.rollback()
+                    checker_result, checker_error = None, "Account balance changed; please try again"
         context.user_data.pop("flow", None)
         context.user_data.pop("api_service", None)
         await update.message.reply_text(
-            api_service_input_result_text(name, detail, text),
+            api_service_input_result_text(name, detail, text, checker_result, checker_error, charged),
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup([
                 [styled_button("SEARCH ANOTHER SERVICE", "search_service", "success", "search")],
@@ -1887,6 +1946,50 @@ async def handle_payment_proof(update: Update, context: ContextTypes.DEFAULT_TYP
     )
 
 
+def parse_registration_payload(payload):
+    data = payload.get("data") if isinstance(payload, dict) and isinstance(payload.get("data"), dict) else payload
+    if not isinstance(data, dict):
+        return None, "Provider returned an undetermined result"
+    registered = data.get("is_registered", data.get("registered", data.get("exists")))
+    if isinstance(registered, bool):
+        return registered, None
+    if isinstance(registered, str) and registered.lower() in {"true", "false"}:
+        return registered.lower() == "true", None
+    status = str(data.get("status", data.get("result", data.get("state", "")))).strip().lower()
+    if status in {"registered", "found", "active", "true", "yes", "exists"}:
+        return True, None
+    if status in {"not_registered", "not registered", "not-found", "not_found", "false", "no", "missing", "not_exists"}:
+        return False, None
+    return None, "Provider returned an undetermined result"
+
+
+async def indexed_provider_lookup(name: str, detail: str, identifier: str):
+    service_type = indexed_provider_service_type(name, detail)
+    if not service_type:
+        return None, "Provider API is not connected for this service yet"
+    api_key = os.getenv("EKYCPRO_API_KEY", "").strip()
+    if not api_key:
+        return None, "Provider API key is not configured for this service yet"
+    api_url = os.getenv("EKYCPRO_API_URL", "https://api.ekycpro.com").strip().rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=18) as client:
+            response = await client.post(
+                f"{api_url}/v1/check",
+                json={"service_type": service_type, "identifier": identifier.strip()},
+                headers={"X-API-Key": api_key},
+            )
+            if response.status_code in {401, 403}:
+                return None, "Provider API key is invalid or revoked"
+            if response.status_code == 429:
+                return None, "Provider rate limit reached; try again shortly"
+            response.raise_for_status()
+            payload = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("Indexed provider lookup unavailable: %s", type(exc).__name__)
+        return None, "Provider checker temporarily unavailable"
+    return parse_registration_payload(payload)
+
+
 async def registration_lookup(service: str, number: str):
     api_url = os.getenv("CHECKER_API_URL", "https://superassets.in").strip().rstrip("/")
     api_key = os.getenv("CHECKER_API_KEY", "").strip()
@@ -1910,18 +2013,7 @@ async def registration_lookup(service: str, number: str):
         logger.warning("Registration lookup unavailable: %s", type(exc).__name__)
         return None, "Checker service temporarily unavailable"
 
-    data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
-    registered = data.get("is_registered", data.get("registered"))
-    if isinstance(registered, bool):
-        return registered, None
-    if isinstance(registered, str) and registered.lower() in {"true", "false"}:
-        return registered.lower() == "true", None
-    status = str(data.get("status", data.get("result", ""))).strip().lower()
-    if status in {"registered", "found", "active", "true", "yes"}:
-        return True, None
-    if status in {"not_registered", "not registered", "not-found", "not_found", "false", "no"}:
-        return False, None
-    return None, "Provider returned an undetermined result"
+    return parse_registration_payload(payload)
 
 
 def registration_lookup_sync(service: str, number: str):

@@ -92,6 +92,8 @@ If membership always shows missing, confirm the chat ID and bot administrator st
 
 `CHECKER_API_URL` defaults to `https://superassets.in`. Keep `CHECKER_API_KEY` in the hosting platform's secret environment settings; never commit it. The bot treats missing, malformed, and rate-limited provider responses as undetermined instead of falsely reporting Not Registered.
 
+Indexed services such as Spotify, Netflix, Facebook, Instagram, Threads, Apple, Viber, Zalo, BAND, GoTo, Indiatimes and HeadHunter can be connected through the optional eKYCPro provider bridge. Set `EKYCPRO_API_URL=https://api.ekycpro.com` and `EKYCPRO_API_KEY` in Railway/Heroku config vars. When the provider returns a determined result, the bot shows Registered or Not Registered and deducts the configured lookup cost; missing keys, provider errors and undetermined responses cost zero credits.
+
 ## Credits, referrals and payments
 
 New users receive 150 credits. A determined provider lookup costs 5 credits; unavailable or undetermined responses are not charged. A referrer receives 20 credits only when a genuinely new Telegram account starts through `https://t.me/<BOT_USERNAME>?start=ref_<telegram_id>`.
