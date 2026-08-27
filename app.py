@@ -27,7 +27,8 @@ SERVICES = [
     "Oyo", "Bigbasket", "Blinkit", "Mantrimall",
     "Brevistay", "Ajio", "Amazon", "MyJio",
     "CrownIt", "Meesho", "GoSats", "Telegram",
-    "WhatsApp", "HabitYoga",
+    "WhatsApp", "HabitYoga", "Plutos", "Starexch",
+    "Lenskart",
 ]
 SERVICE_IDS = {
     "MyJio": "jio",
@@ -494,6 +495,8 @@ def init_db() -> None:
                 name TEXT NOT NULL UNIQUE,
                 detail TEXT NOT NULL,
                 provider_type TEXT,
+                api_url TEXT,
+                input_type TEXT NOT NULL DEFAULT 'number',
                 enabled INTEGER NOT NULL DEFAULT 1,
                 created_at INTEGER NOT NULL
             );
@@ -520,6 +523,14 @@ def init_db() -> None:
         for column, statement in payment_migrations.items():
             if column not in payment_columns:
                 db.execute(statement)
+        custom_columns = {row[1] for row in db.execute("PRAGMA table_info(custom_services)")}
+        custom_migrations = {
+            "api_url": "ALTER TABLE custom_services ADD COLUMN api_url TEXT",
+            "input_type": "ALTER TABLE custom_services ADD COLUMN input_type TEXT NOT NULL DEFAULT 'number'",
+        }
+        for column, statement in custom_migrations.items():
+            if column not in custom_columns:
+                db.execute(statement)
         db.commit()
 
 
@@ -540,8 +551,8 @@ def custom_service_rows(include_disabled: bool = False):
     try:
         with closing(db_connect()) as db:
             if include_disabled:
-                return db.execute("SELECT id, name, detail, provider_type, enabled, created_at FROM custom_services ORDER BY name").fetchall()
-            return db.execute("SELECT id, name, detail, provider_type, enabled, created_at FROM custom_services WHERE enabled = 1 ORDER BY name").fetchall()
+                return db.execute("SELECT id, name, detail, provider_type, api_url, input_type, enabled, created_at FROM custom_services ORDER BY name").fetchall()
+            return db.execute("SELECT id, name, detail, provider_type, api_url, input_type, enabled, created_at FROM custom_services WHERE enabled = 1 ORDER BY name").fetchall()
     except sqlite3.Error:
         return []
 
@@ -664,12 +675,14 @@ def api_service_catalog():
                 "active": False,
                 "variants": [name],
             }
-    for _service_id, name, detail, provider_type, _enabled, _created_at in custom_service_rows(False):
+    for _service_id, name, detail, provider_type, api_url, input_type, _enabled, _created_at in custom_service_rows(False):
         canonical = canonical_api_service_name(name)
         key = canonical.lower()
-        tagged_detail = detail
+        tagged_detail = f"{detail} input_type {input_type or 'number'}"
+        if api_url:
+            tagged_detail = f"{tagged_detail} api_url {api_url}"
         if provider_type:
-            tagged_detail = f"{detail} service_type {provider_type}"
+            tagged_detail = f"{tagged_detail} service_type {provider_type}"
         if key in catalog:
             catalog[key]["detail"] = tagged_detail
             catalog[key]["variants"].append(name)
@@ -717,6 +730,15 @@ def api_service_matches(query: str, limit: int = 25):
 
 def api_service_guidance(name: str, detail: str) -> str:
     haystack = f"{name} {detail}".lower()
+    input_match = re.search(r"input_type\s+([a-z0-9_]+)", haystack)
+    if input_match and input_match.group(1) in {"number", "phone", "mobile"}:
+        return "Send mobile number with country code."
+    if input_match and input_match.group(1) == "email":
+        return "Send email address."
+    if input_match and input_match.group(1) in {"username", "user"}:
+        return "Send username or profile ID."
+    if input_match and input_match.group(1) in {"url", "domain", "ip"}:
+        return "Send URL, domain, or IP address."
     if any(word in haystack for word in {"phone registration checker", "number checker", "phone existence checker", "number verification", "phone validation", "number insight", "phoneid"}):
         return "Send phone number in international format. Real registered/non-registered output needs configured provider API access and authorized use."
     if "email registration checker" in haystack:
@@ -744,6 +766,15 @@ def api_service_guidance(name: str, detail: str) -> str:
 
 def api_service_input_label(name: str, detail: str) -> str:
     haystack = f"{name} {detail}".lower()
+    input_match = re.search(r"input_type\s+([a-z0-9_]+)", haystack)
+    if input_match and input_match.group(1) in {"number", "phone", "mobile"}:
+        return "mobile number with country code"
+    if input_match and input_match.group(1) == "email":
+        return "email address"
+    if input_match and input_match.group(1) in {"username", "user"}:
+        return "username or profile ID"
+    if input_match and input_match.group(1) in {"url", "domain", "ip"}:
+        return "URL, domain, or IP address"
     if any(word in haystack for word in {"phone registration checker", "number checker", "phone existence checker", "number verification", "phone validation", "number insight", "phoneid"}):
         return "phone number with country code, for authorized lookup"
     if "email registration checker" in haystack:
@@ -786,7 +817,8 @@ def indexed_provider_service_type(name: str, detail: str) -> str | None:
 
 
 def api_service_cost(name: str, detail: str) -> int:
-    return CHECK_COST if indexed_provider_service_type(name, detail) and os.getenv("EKYCPRO_API_KEY", "").strip() else 0
+    has_custom_url = bool(re.search(r"api_url\s+https?://\S+", detail.lower()))
+    return CHECK_COST if indexed_provider_service_type(name, detail) and (os.getenv("EKYCPRO_API_KEY", "").strip() or has_custom_url) else 0
 
 
 def api_service_plain_input_label(name: str, detail: str) -> str:
@@ -2021,16 +2053,20 @@ async def indexed_provider_lookup(name: str, detail: str, identifier: str):
     service_type = indexed_provider_service_type(name, detail)
     if not service_type:
         return None, "Provider API is not connected for this service yet"
+    custom_url_match = re.search(r"api_url\s+(https?://\S+)", detail, re.I)
+    custom_url = custom_url_match.group(1).strip().rstrip("/") if custom_url_match else ""
     api_key = os.getenv("EKYCPRO_API_KEY", "").strip()
-    if not api_key:
+    if not api_key and not custom_url:
         return None, "Provider API key is not configured for this service yet"
-    api_url = os.getenv("EKYCPRO_API_URL", "https://api.ekycpro.com").strip().rstrip("/")
+    api_url = custom_url or os.getenv("EKYCPRO_API_URL", "https://api.ekycpro.com").strip().rstrip("/")
+    endpoint = api_url if custom_url and re.search(r"/check/?$", api_url, re.I) else f"{api_url}/v1/check"
+    headers = {"X-API-Key": api_key} if api_key else {}
     try:
         async with httpx.AsyncClient(timeout=18) as client:
             response = await client.post(
-                f"{api_url}/v1/check",
+                endpoint,
                 json={"service_type": service_type, "identifier": identifier.strip()},
-                headers={"X-API-Key": api_key},
+                headers=headers,
             )
             if response.status_code in {401, 403}:
                 return None, "Provider API key is invalid or revoked"
@@ -2673,7 +2709,7 @@ def admin_panel():
             "SELECT telegram_id, username, first_name, credits, last_seen FROM users WHERE mini_app_unlocked = 1 ORDER BY last_seen DESC LIMIT 75"
         ).fetchall()
         custom_services = db.execute(
-            "SELECT id, name, detail, provider_type, enabled, created_at FROM custom_services ORDER BY name"
+            "SELECT id, name, detail, provider_type, api_url, input_type, enabled, created_at FROM custom_services ORDER BY name"
         ).fetchall()
     supported_services = api_service_catalog()
     payment_settings = {
@@ -2940,23 +2976,36 @@ def add_custom_service():
     name = request.form.get("name", "").strip()
     detail = request.form.get("detail", "").strip()
     provider_type = request.form.get("provider_type", "").strip().lower()
+    api_url = request.form.get("api_url", "").strip()
+    input_type = request.form.get("input_type", "number").strip().lower()
     should_notify = request.form.get("notify_users") == "1"
     if len(name) < 2 or len(detail) < 5:
         flash("Enter a valid service name and description")
         return redirect(url_for("admin_panel"))
     provider_type = re.sub(r"[^a-z0-9_]", "", provider_type)[:50]
+    if api_url and not re.match(r"^https?://", api_url, re.I):
+        flash("API URL must start with http:// or https://")
+        return redirect(url_for("admin_panel"))
+    if input_type not in {"number", "email", "username", "url", "domain", "ip"}:
+        input_type = "number"
     now = int(time.time())
     with closing(db_connect()) as db:
         db.execute(
             """
-            INSERT INTO custom_services (name, detail, provider_type, enabled, created_at)
-            VALUES (?, ?, ?, 1, ?)
-            ON CONFLICT(name) DO UPDATE SET detail = excluded.detail, provider_type = excluded.provider_type, enabled = 1
+            INSERT INTO custom_services (name, detail, provider_type, api_url, input_type, enabled, created_at)
+            VALUES (?, ?, ?, ?, ?, 1, ?)
+            ON CONFLICT(name) DO UPDATE SET
+                detail = excluded.detail,
+                provider_type = excluded.provider_type,
+                api_url = excluded.api_url,
+                input_type = excluded.input_type,
+                enabled = 1
             """,
-            (name[:80], detail[:900], provider_type or None, now),
+            (name[:80], detail[:900], provider_type or None, api_url[:700] or None, input_type, now),
         )
         db.commit()
-    sent = notify_new_service_added(name[:80], detail[:900]) if should_notify else 0
+    notice_detail = f"{detail[:700]}\nInput: {input_type.title()}"
+    sent = notify_new_service_added(name[:80], notice_detail) if should_notify else 0
     flash(f"Service saved" + (f" and notified {sent} users" if should_notify else ""))
     return redirect(url_for("admin_panel"))
 
