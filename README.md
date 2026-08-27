@@ -92,15 +92,15 @@ If membership always shows missing, confirm the chat ID and bot administrator st
 
 `CHECKER_API_URL` defaults to `https://superassets.in`. Keep `CHECKER_API_KEY` in the hosting platform's secret environment settings; never commit it. The bot treats missing, malformed, and rate-limited provider responses as undetermined instead of falsely reporting Not Registered.
 
-Indexed services such as Spotify, Netflix, Facebook, Instagram, Threads, Apple, Viber, Zalo, BAND, GoTo, Indiatimes and HeadHunter can be connected through the optional eKYCPro provider bridge. Set `EKYCPRO_API_URL=https://api.ekycpro.com` and `EKYCPRO_API_KEY` in Railway/Heroku config vars. When the provider returns a determined result, the bot shows Registered or Not Registered and deducts the configured lookup cost; missing keys, provider errors and undetermined responses cost zero credits.
+Indexed services such as Spotify, Netflix, Facebook, Instagram, Threads, Apple, Viber, Zalo, BAND, GoTo, Indiatimes and HeadHunter can be connected through the optional eKYCPro provider bridge. The repo includes `config/custom_services.json` with service name, API URL, input type and provider type metadata, so these services are seeded automatically on startup. Keep `EKYCPRO_API_KEY` in Railway/Heroku config vars if your provider requires it. When the provider returns a determined result, the bot shows Registered or Not Registered and deducts the configured lookup cost; missing keys, provider errors and undetermined responses cost zero credits.
 
-The Search Service directory shows only supported live checkers and provider-connectable indexed services. Generic platforms without a configured checker API are intentionally hidden from the user-facing list.
+The Search Service directory shows only supported live checkers and provider-connectable indexed services. Generic platforms without a configured checker API are intentionally hidden from the user-facing list. More services can be added from `/admin` by entering service name, API URL, input type, provider type and user-facing details.
 
 ## Credits, referrals and payments
 
 New users receive 150 credits. A determined provider lookup costs 5 credits; unavailable or undetermined responses are not charged. A referrer receives 20 credits only when a genuinely new Telegram account starts through `https://t.me/<BOT_USERNAME>?start=ref_<telegram_id>`.
 
-The Buy Credit flow first lets users choose **API Access** or **Credit Balance**. Credit Balance supports 100/500/1000/5000 packages, custom quantities, UPI and USDT destinations, transaction references, and screenshot/document proof. API Access supports weekly, monthly, and yearly plans; approval generates a private API key for the user. An administrator can approve or decline from Telegram inline buttons or from `/admin`. The bot never asks users for an OTP, UPI PIN, password, wallet seed phrase, or card details.
+The Buy Credit flow first lets users choose **API Access** or **Credit Balance**. Credit Balance supports 100/500/1000/5000 packages, custom quantities, UPI and USDT destinations, transaction references, and screenshot/document proof. API Access supports weekly, monthly, and yearly plans; approval generates a private API key for the user. An administrator approves or declines payment proofs from Telegram inline buttons; `/admin` keeps payment destination editing and request logs. The bot never asks users for an OTP, UPI PIN, password, wallet seed phrase, or card details.
 
 ## Customer API
 
@@ -113,12 +113,13 @@ API plan access must be active and the user must have enough checker credits. A 
 
 ## Advanced administrator panel
 
-The password-protected panel includes operational statistics, force-join channel management, user suspension/restoration, manual credit adjustments, payment approval/rejection, and a support-ticket queue. Use HTTPS, a strong `ADMIN_PASSWORD`, and a durable `DATABASE_PATH` in production.
+The password-protected panel includes operational statistics, force-join channel management, user suspension/restoration, manual credit adjustments, payment info editing, service/API management, custom service creation, Mini App access control, broadcast tools, gift cards and a support-ticket queue. Use HTTPS, a strong `ADMIN_PASSWORD`, and a durable `DATABASE_PATH` in production.
 
 ## Project files
 
-- `app.py` — Telegram bot, API integration, Mini App and admin routes
-- `templates/` — responsive TempSMS-style web interfaces
+- `app.py` - Telegram bot, API integration, Mini App and admin routes
+- `config/custom_services.json` - repo-backed custom/indexed service metadata
+- `templates/` - responsive TempSMS-style web interfaces
 - `.env.example` — complete environment-variable template
 - `railway.json` — Railway build, health check and restart policy
 - `app.json` — Heroku one-click deployment manifest

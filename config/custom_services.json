@@ -1,0 +1,130 @@
+{
+  "services": [
+    {
+      "name": "Facebook",
+      "api_url": "https://api.ekycpro.com/v1/check",
+      "input_type": "number",
+      "provider_type": "facebook",
+      "detail": "Phone registration checker provider. Send mobile number with country code."
+    },
+    {
+      "name": "Instagram",
+      "api_url": "https://api.ekycpro.com/v1/check",
+      "input_type": "number",
+      "provider_type": "instagram",
+      "detail": "Phone registration checker provider. Send mobile number with country code."
+    },
+    {
+      "name": "Threads",
+      "api_url": "https://api.ekycpro.com/v1/check",
+      "input_type": "number",
+      "provider_type": "threads",
+      "detail": "Phone registration checker provider. Send mobile number with country code."
+    },
+    {
+      "name": "X / Twitter",
+      "api_url": "https://api.ekycpro.com/v1/check",
+      "input_type": "number",
+      "provider_type": "twitter",
+      "detail": "Phone registration checker provider. Send mobile number with country code."
+    },
+    {
+      "name": "Apple iMessage",
+      "api_url": "https://api.ekycpro.com/v1/check",
+      "input_type": "number",
+      "provider_type": "apple",
+      "detail": "Phone/iMessage registration checker provider. Send mobile number with country code."
+    },
+    {
+      "name": "Viber",
+      "api_url": "https://api.ekycpro.com/v1/check",
+      "input_type": "number",
+      "provider_type": "viber",
+      "detail": "Phone registration checker provider. Send mobile number with country code."
+    },
+    {
+      "name": "Zalo",
+      "api_url": "https://api.ekycpro.com/v1/check",
+      "input_type": "number",
+      "provider_type": "zalo",
+      "detail": "Phone registration checker provider. Send mobile number with country code."
+    },
+    {
+      "name": "Microsoft",
+      "api_url": "https://api.ekycpro.com/v1/check",
+      "input_type": "number",
+      "provider_type": "microsoft",
+      "detail": "Phone registration checker provider. Send mobile number with country code."
+    },
+    {
+      "name": "BAND",
+      "api_url": "https://api.ekycpro.com/v1/check",
+      "input_type": "number",
+      "provider_type": "band",
+      "detail": "Phone registration checker provider. Send mobile number with country code."
+    },
+    {
+      "name": "GoTo",
+      "api_url": "https://api.ekycpro.com/v1/check",
+      "input_type": "number",
+      "provider_type": "goto",
+      "detail": "Phone registration checker provider. Send mobile number with country code."
+    },
+    {
+      "name": "Indiatimes",
+      "api_url": "https://api.ekycpro.com/v1/check",
+      "input_type": "number",
+      "provider_type": "indiatimes",
+      "detail": "Phone registration checker provider. Send mobile number with country code."
+    },
+    {
+      "name": "HeadHunter",
+      "api_url": "https://api.ekycpro.com/v1/check",
+      "input_type": "number",
+      "provider_type": "hh",
+      "detail": "Phone registration checker provider. Send mobile number with country code."
+    },
+    {
+      "name": "Facebook Email",
+      "api_url": "https://api.ekycpro.com/v1/check",
+      "input_type": "email",
+      "provider_type": "facebook_email",
+      "detail": "Email registration checker provider. Send email address."
+    },
+    {
+      "name": "Instagram Email",
+      "api_url": "https://api.ekycpro.com/v1/check",
+      "input_type": "email",
+      "provider_type": "instagram_email",
+      "detail": "Email registration checker provider. Send email address."
+    },
+    {
+      "name": "Apple Email",
+      "api_url": "https://api.ekycpro.com/v1/check",
+      "input_type": "email",
+      "provider_type": "apple_email",
+      "detail": "Email registration checker provider. Send email address."
+    },
+    {
+      "name": "Amazon Email",
+      "api_url": "https://api.ekycpro.com/v1/check",
+      "input_type": "email",
+      "provider_type": "amazon_email",
+      "detail": "Email registration checker provider. Send email address."
+    },
+    {
+      "name": "Netflix",
+      "api_url": "https://api.ekycpro.com/v1/check",
+      "input_type": "email",
+      "provider_type": "netflix",
+      "detail": "Email registration checker provider. Send email address."
+    },
+    {
+      "name": "Spotify",
+      "api_url": "https://api.ekycpro.com/v1/check",
+      "input_type": "email",
+      "provider_type": "spotify_email",
+      "detail": "Email registration checker provider. Send email address."
+    }
+  ]
+}

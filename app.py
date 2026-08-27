@@ -5,6 +5,7 @@ import secrets
 import sqlite3
 import threading
 import time
+import json
 from html import escape
 from urllib.parse import urlencode
 from contextlib import closing
@@ -22,6 +23,7 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 
 
 BOT_NAME = "Annebella Checker Bot"
+REPO_CUSTOM_SERVICES_FILE = os.path.join(os.path.dirname(__file__), "config", "custom_services.json")
 SERVICES = [
     "Shein", "Flipkart", "Swiggy", "Myntra",
     "Oyo", "Bigbasket", "Blinkit", "Mantrimall",
@@ -404,6 +406,61 @@ def db_connect():
     return sqlite3.connect(DB_PATH)
 
 
+def load_repo_custom_services() -> list[dict]:
+    if not os.path.exists(REPO_CUSTOM_SERVICES_FILE):
+        return []
+    try:
+        with open(REPO_CUSTOM_SERVICES_FILE, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, ValueError) as exc:
+        logger.warning("Could not load repo custom services: %s", type(exc).__name__)
+        return []
+    rows = payload.get("services", payload) if isinstance(payload, dict) else payload
+    if not isinstance(rows, list):
+        return []
+    clean_rows: list[dict] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name", "")).strip()
+        detail = str(row.get("detail", "")).strip()
+        api_url = str(row.get("api_url", "")).strip()
+        provider_type = re.sub(r"[^a-z0-9_]", "", str(row.get("provider_type", "")).strip().lower())[:50]
+        input_type = str(row.get("input_type", "number")).strip().lower()
+        if input_type not in {"number", "email", "username", "url", "domain", "ip"}:
+            input_type = "number"
+        if len(name) < 2 or len(detail) < 5:
+            continue
+        if api_url and not re.match(r"^https?://", api_url, re.I):
+            continue
+        clean_rows.append({
+            "name": name[:80],
+            "detail": detail[:900],
+            "provider_type": provider_type or None,
+            "api_url": api_url[:700] or None,
+            "input_type": input_type,
+        })
+    return clean_rows
+
+
+def seed_repo_custom_services(db) -> None:
+    now = int(time.time())
+    for row in load_repo_custom_services():
+        db.execute(
+            """
+            INSERT INTO custom_services (name, detail, provider_type, api_url, input_type, enabled, created_at)
+            VALUES (?, ?, ?, ?, ?, 1, ?)
+            ON CONFLICT(name) DO UPDATE SET
+                detail = excluded.detail,
+                provider_type = excluded.provider_type,
+                api_url = excluded.api_url,
+                input_type = excluded.input_type,
+                enabled = 1
+            """,
+            (row["name"], row["detail"], row["provider_type"], row["api_url"], row["input_type"], now),
+        )
+
+
 def is_admin_user(user_id: int | None) -> bool:
     if user_id is None:
         return False
@@ -531,6 +588,7 @@ def init_db() -> None:
         for column, statement in custom_migrations.items():
             if column not in custom_columns:
                 db.execute(statement)
+        seed_repo_custom_services(db)
         db.commit()
 
 
