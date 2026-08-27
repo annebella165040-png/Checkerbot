@@ -484,6 +484,19 @@ def init_db() -> None:
                 used_at INTEGER,
                 created_at INTEGER NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS custom_services (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                detail TEXT NOT NULL,
+                provider_type TEXT,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at INTEGER NOT NULL
+            );
             """
         )
         columns = {row[1] for row in db.execute("PRAGMA table_info(users)")}
@@ -508,6 +521,29 @@ def init_db() -> None:
             if column not in payment_columns:
                 db.execute(statement)
         db.commit()
+
+
+def app_setting(key: str, default: str = "") -> str:
+    try:
+        with closing(db_connect()) as db:
+            row = db.execute("SELECT value FROM app_settings WHERE key = ?", (key,)).fetchone()
+    except sqlite3.Error:
+        return default
+    return row[0] if row else default
+
+
+def payment_value(key: str, fallback: str = "") -> str:
+    return app_setting(key, os.getenv(key, fallback).strip())
+
+
+def custom_service_rows(include_disabled: bool = False):
+    try:
+        with closing(db_connect()) as db:
+            if include_disabled:
+                return db.execute("SELECT id, name, detail, provider_type, enabled, created_at FROM custom_services ORDER BY name").fetchall()
+            return db.execute("SELECT id, name, detail, provider_type, enabled, created_at FROM custom_services WHERE enabled = 1 ORDER BY name").fetchall()
+    except sqlite3.Error:
+        return []
 
 
 def premium(emoji: str, name: str = "sparkle") -> str:
@@ -625,6 +661,22 @@ def api_service_catalog():
             catalog[key] = {
                 "name": canonical,
                 "detail": detail,
+                "active": False,
+                "variants": [name],
+            }
+    for _service_id, name, detail, provider_type, _enabled, _created_at in custom_service_rows(False):
+        canonical = canonical_api_service_name(name)
+        key = canonical.lower()
+        tagged_detail = detail
+        if provider_type:
+            tagged_detail = f"{detail} service_type {provider_type}"
+        if key in catalog:
+            catalog[key]["detail"] = tagged_detail
+            catalog[key]["variants"].append(name)
+        else:
+            catalog[key] = {
+                "name": canonical,
+                "detail": tagged_detail,
                 "active": False,
                 "variants": [name],
             }
@@ -1265,7 +1317,7 @@ def api_packages_keyboard() -> InlineKeyboardMarkup:
 
 def payment_qr_url(credits: int, price: int | None) -> str:
     note = f"Annebella {credits} Credits" if credits else "Annebella API Access"
-    params = {"pa": os.getenv("PAYMENT_UPI_ID", "gauravpayout@fam").strip(), "pn": "Annebella", "cu": "INR", "tn": note}
+    params = {"pa": payment_value("PAYMENT_UPI_ID", "gauravpayout@fam"), "pn": "Annebella", "cu": "INR", "tn": note}
     if price is not None:
         params["am"] = str(price)
     payment_uri = "upi://pay?" + urlencode(params)
@@ -1341,10 +1393,10 @@ def api_store_text() -> str:
 
 
 def usdt_payment_keyboard() -> InlineKeyboardMarkup:
-    binance_id = os.getenv("USDT_BINANCE_ID", "1114491025")
-    bep20 = os.getenv("USDT_BEP20_ADDRESS", "0x430b7abc929366ba7c4e3ca26b6c4177590c0c4f")
-    trc20 = os.getenv("USDT_TRC20_ADDRESS", "TDfzW7sn7Hut3uQr6Gnk6TyVN2aG6UoUEn")
-    erc20 = os.getenv("USDT_ERC20_ADDRESS", "0x430b7abc929366ba7c4e3ca26b6c4177590c0c4f")
+    binance_id = payment_value("USDT_BINANCE_ID", "1114491025")
+    bep20 = payment_value("USDT_BEP20_ADDRESS", "0x430b7abc929366ba7c4e3ca26b6c4177590c0c4f")
+    trc20 = payment_value("USDT_TRC20_ADDRESS", "TDfzW7sn7Hut3uQr6Gnk6TyVN2aG6UoUEn")
+    erc20 = payment_value("USDT_ERC20_ADDRESS", "0x430b7abc929366ba7c4e3ca26b6c4177590c0c4f")
     return InlineKeyboardMarkup([
         [copy_button("COPY BINANCE ID", binance_id, "success", "usdt"), copy_button("COPY TRC20", trc20, "primary", "usdt")],
         [copy_button("COPY BEP20", bep20, "success", "usdt"), copy_button("COPY ERC20", erc20, "danger", "usdt")],
@@ -2163,7 +2215,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         package["method"] = method
         context.user_data["flow"] = "payment_reference"
         if method == "upi":
-            destination = os.getenv("PAYMENT_UPI_ID", "gauravpayout@fam").strip()
+            destination = payment_value("PAYMENT_UPI_ID", "gauravpayout@fam")
             qr_amount = package.get("price") if package.get("currency") == "INR" else None
             caption = (
                 f"{premium('◆', 'payment')} <b>ANNEBELLA PAYMENT QR</b>\n{divider()}\n\n"
@@ -2180,11 +2232,15 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
             return
         else:
+            binance_id = payment_value("USDT_BINANCE_ID", "1114491025")
+            bep20 = payment_value("USDT_BEP20_ADDRESS", "0x430b7abc929366ba7c4e3ca26b6c4177590c0c4f")
+            trc20 = payment_value("USDT_TRC20_ADDRESS", "TDfzW7sn7Hut3uQr6Gnk6TyVN2aG6UoUEn")
+            erc20 = payment_value("USDT_ERC20_ADDRESS", "0x430b7abc929366ba7c4e3ca26b6c4177590c0c4f")
             instructions = (
-                f"{premium('◆', 'usdt')} <b>BINANCE ID</b>\n<code>{os.getenv('USDT_BINANCE_ID', '1114491025')}</code>\n\n"
-                f"{premium('◆', 'star')} <b>BSC / BNB — BEP20</b>\n<code>{os.getenv('USDT_BEP20_ADDRESS', '0x430b7abc929366ba7c4e3ca26b6c4177590c0c4f')}</code>\n\n"
-                f"{premium('◆', 'star')} <b>TRX / TRON — TRC20</b>\n<code>{os.getenv('USDT_TRC20_ADDRESS', 'TDfzW7sn7Hut3uQr6Gnk6TyVN2aG6UoUEn')}</code>\n\n"
-                f"{premium('◆', 'star')} <b>ETH / ETHEREUM — ERC20</b>\n<code>{os.getenv('USDT_ERC20_ADDRESS', '0x430b7abc929366ba7c4e3ca26b6c4177590c0c4f')}</code>"
+                f"{premium('◆', 'usdt')} <b>BINANCE ID</b>\n<code>{binance_id}</code>\n\n"
+                f"{premium('◆', 'star')} <b>BSC / BNB — BEP20</b>\n<code>{bep20}</code>\n\n"
+                f"{premium('◆', 'star')} <b>TRX / TRON — TRC20</b>\n<code>{trc20}</code>\n\n"
+                f"{premium('◆', 'star')} <b>ETH / ETHEREUM — ERC20</b>\n<code>{erc20}</code>"
             )
         await query.edit_message_text(
             f"{premium('◆', 'usdt')} <b>USDT PAYMENT</b>\n{divider()}\n\n"
@@ -2616,7 +2672,17 @@ def admin_panel():
         mini_users = db.execute(
             "SELECT telegram_id, username, first_name, credits, last_seen FROM users WHERE mini_app_unlocked = 1 ORDER BY last_seen DESC LIMIT 75"
         ).fetchall()
+        custom_services = db.execute(
+            "SELECT id, name, detail, provider_type, enabled, created_at FROM custom_services ORDER BY name"
+        ).fetchall()
     supported_services = api_service_catalog()
+    payment_settings = {
+        "PAYMENT_UPI_ID": payment_value("PAYMENT_UPI_ID", "gauravpayout@fam"),
+        "USDT_BINANCE_ID": payment_value("USDT_BINANCE_ID", "1114491025"),
+        "USDT_BEP20_ADDRESS": payment_value("USDT_BEP20_ADDRESS", "0x430b7abc929366ba7c4e3ca26b6c4177590c0c4f"),
+        "USDT_TRC20_ADDRESS": payment_value("USDT_TRC20_ADDRESS", "TDfzW7sn7Hut3uQr6Gnk6TyVN2aG6UoUEn"),
+        "USDT_ERC20_ADDRESS": payment_value("USDT_ERC20_ADDRESS", "0x430b7abc929366ba7c4e3ca26b6c4177590c0c4f"),
+    }
     return render_template(
         "admin.html", bot_name=BOT_NAME, users=users, channels=channels, user_count=user_count,
         search_count=search_count, total_credits=total_credits, pending_count=pending_count,
@@ -2624,7 +2690,8 @@ def admin_panel():
         banned_count=banned_count, open_tickets=open_tickets, unlocked_count=unlocked_count,
         approved_revenue=approved_revenue, recent_searches=recent_searches, transactions=transactions,
         enabled_channel_count=enabled_channel_count, services=SERVICES, check_cost=CHECK_COST,
-        api_keys=api_keys, mini_users=mini_users, supported_services=supported_services,
+        api_keys=api_keys, mini_users=mini_users, custom_services=custom_services,
+        supported_services=supported_services, payment_settings=payment_settings,
         ekyc_enabled=bool(os.getenv("EKYCPRO_API_KEY", "").strip()),
         checker_enabled=bool(os.getenv("CHECKER_API_KEY", "").strip()),
         mini_app_cost=MINI_APP_COST,
@@ -2802,6 +2869,85 @@ def toggle_api_key(key_id):
         db.execute("UPDATE api_keys SET active = 1 - active WHERE id = ?", (key_id,))
         db.commit()
     flash("API key status updated")
+    return redirect(url_for("admin_panel"))
+
+
+@web.post("/admin/payment-settings")
+@admin_required
+def update_payment_settings():
+    allowed = {
+        "PAYMENT_UPI_ID",
+        "USDT_BINANCE_ID",
+        "USDT_BEP20_ADDRESS",
+        "USDT_TRC20_ADDRESS",
+        "USDT_ERC20_ADDRESS",
+    }
+    now = int(time.time())
+    with closing(db_connect()) as db:
+        for key in allowed:
+            value = request.form.get(key, "").strip()[:500]
+            db.execute(
+                "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+                (key, value, now),
+            )
+        db.commit()
+    flash("Payment information updated")
+    return redirect(url_for("admin_panel"))
+
+
+def notify_new_service_added(name: str, detail: str) -> int:
+    with closing(db_connect()) as db:
+        rows = db.execute("SELECT telegram_id FROM users WHERE banned = 0").fetchall()
+    body = (
+        f"{premium('◆', 'rocket')} <b>NEW SERVICE ADDED</b>\n{divider()}\n\n"
+        f"{premium('◆', 'search')} <b>SERVICE:</b> {escape(name)}\n"
+        f"{premium('◆', 'globe')} <b>STATUS:</b> Available in AnneBella service directory\n\n"
+        f"{premium('◆', 'star')} {escape(detail[:600])}\n\n"
+        f"{premium('◆', 'check')} Open <b>CHECK SERVICES</b>, tap <b>SEARCH SERVICE</b>, then type the service name."
+    )
+    sent = 0
+    for (user_id,) in rows:
+        notify_user(user_id, body)
+        sent += 1
+        time.sleep(0.04)
+    return sent
+
+
+@web.post("/admin/services")
+@admin_required
+def add_custom_service():
+    name = request.form.get("name", "").strip()
+    detail = request.form.get("detail", "").strip()
+    provider_type = request.form.get("provider_type", "").strip().lower()
+    should_notify = request.form.get("notify_users") == "1"
+    if len(name) < 2 or len(detail) < 5:
+        flash("Enter a valid service name and description")
+        return redirect(url_for("admin_panel"))
+    provider_type = re.sub(r"[^a-z0-9_]", "", provider_type)[:50]
+    now = int(time.time())
+    with closing(db_connect()) as db:
+        db.execute(
+            """
+            INSERT INTO custom_services (name, detail, provider_type, enabled, created_at)
+            VALUES (?, ?, ?, 1, ?)
+            ON CONFLICT(name) DO UPDATE SET detail = excluded.detail, provider_type = excluded.provider_type, enabled = 1
+            """,
+            (name[:80], detail[:900], provider_type or None, now),
+        )
+        db.commit()
+    sent = notify_new_service_added(name[:80], detail[:900]) if should_notify else 0
+    flash(f"Service saved" + (f" and notified {sent} users" if should_notify else ""))
+    return redirect(url_for("admin_panel"))
+
+
+@web.post("/admin/services/<int:service_id>/toggle")
+@admin_required
+def toggle_custom_service(service_id):
+    with closing(db_connect()) as db:
+        db.execute("UPDATE custom_services SET enabled = 1 - enabled WHERE id = ?", (service_id,))
+        db.commit()
+    flash("Service status updated")
     return redirect(url_for("admin_panel"))
 
 
