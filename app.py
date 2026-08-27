@@ -2097,22 +2097,27 @@ def parse_boolish_registration(value):
         return bool(value)
     if isinstance(value, str):
         clean = value.strip().lower().replace("-", "_")
+        words = re.sub(r"[_\s]+", " ", clean)
         negative_terms = {
             "false", "0", "no", "not_registered", "not register", "not registered",
-            "not_found", "not found", "missing", "not_exists", "not exist", "not_exists",
-            "unregistered", "absent", "inactive",
+            "not_found", "not found", "missing", "not_exists", "not exist",
+            "unregistered", "absent", "inactive", "available", "free", "unused",
+            "does_not_exist", "does not exist", "no_account", "no account", "no_user",
+            "no user", "not_linked", "not linked", "unlinked", "invalid",
         }
         positive_terms = {
             "true", "1", "yes", "registered", "found", "exists", "exist", "active",
-            "present", "valid", "linked", "used", "taken",
+            "present", "valid", "linked", "used", "taken", "unavailable", "occupied",
+            "already_registered", "already registered", "account_exists", "account exists",
+            "account_found", "account found", "user_exists", "user exists",
         }
-        if clean in negative_terms:
+        if clean in negative_terms or words in negative_terms:
             return False
-        if clean in positive_terms:
+        if clean in positive_terms or words in positive_terms:
             return True
-        if re.search(r"\b(not\s+registered|not\s+found|not\s+exist|no\s+account|not\s+linked|unregistered)\b", clean):
+        if re.search(r"\b(not\s+registered|not\s+found|not\s+exist|does\s+not\s+exist|no\s+account|no\s+user|not\s+linked|unregistered|unlinked|available|free|unused|invalid)\b", words):
             return False
-        if re.search(r"\b(registered|found|exists|exist|active|linked|account\s+found)\b", clean):
+        if re.search(r"\b(already\s+registered|registered|found|exists|exist|active|linked|account\s+found|account\s+exists|user\s+exists|taken|used|unavailable|occupied|valid)\b", words):
             return True
     return None
 
@@ -2121,8 +2126,38 @@ def parse_registration_payload(payload):
     priority_keys = {
         "is_registered", "registered", "exists", "exist", "is_exist", "found",
         "is_found", "account_exists", "account_found", "linked", "is_linked",
-        "valid", "available", "status", "state", "result", "message",
+        "valid", "is_valid", "available", "availability", "status", "state",
+        "result", "message", "msg", "description", "registered_status",
+        "registration_status", "account_status", "user_status",
     }
+    account_key_markers = (
+        "register", "exist", "found", "linked", "available", "availability",
+        "account", "user", "member", "profile",
+    )
+
+    def key_name(value) -> str:
+        return re.sub(r"[^a-z0-9_]", "", str(value).strip().lower().replace("-", "_"))
+
+    def parse_key_value(key, value, depth):
+        normalized = key_name(key)
+        if normalized in {"success", "ok", "code", "status_code", "http_status", "request_id", "timestamp"}:
+            return None
+        if normalized in priority_keys or any(marker in normalized for marker in account_key_markers):
+            parsed = parse_boolish_registration(value)
+            if parsed is None and isinstance(value, (dict, list)):
+                parsed = walk(value, depth + 1)
+            if parsed is not None:
+                if "available" in normalized or "availability" in normalized:
+                    raw = str(value).strip().lower().replace("-", "_")
+                    raw_words = re.sub(r"[_\s]+", " ", raw)
+                    if isinstance(value, bool) or raw in {"true", "false", "1", "0", "yes", "no"}:
+                        return not parsed
+                    if raw in {"available", "free", "unused"} or raw_words in {"available", "free", "unused"}:
+                        return False
+                    if raw in {"unavailable", "taken", "used", "occupied"} or raw_words in {"unavailable", "taken", "used", "occupied"}:
+                        return True
+                return parsed
+        return None
 
     def walk(value, depth: int = 0):
         if depth > 5:
@@ -2131,19 +2166,18 @@ def parse_registration_payload(payload):
         if direct is not None:
             return direct
         if isinstance(value, dict):
-            for key in priority_keys:
-                if key in value:
-                    parsed = parse_boolish_registration(value.get(key))
-                    if parsed is not None:
-                        if key == "available":
-                            return not parsed
-                        return parsed
-            for key in ("data", "result", "response", "payload", "check", "account", "user"):
-                if key in value:
-                    parsed = walk(value.get(key), depth + 1)
-                    if parsed is not None:
-                        return parsed
-            for nested in value.values():
+            normalized_items = [(key_name(key), key, nested) for key, nested in value.items()]
+            for _normalized, key, nested in normalized_items:
+                parsed = parse_key_value(key, nested, depth)
+                if parsed is not None:
+                    return parsed
+            for container_key in ("data", "result", "response", "payload", "check", "account", "user", "profile", "details", "meta"):
+                for normalized, _key, nested in normalized_items:
+                    if normalized == container_key:
+                        parsed = walk(nested, depth + 1)
+                        if parsed is not None:
+                            return parsed
+            for _key, nested in value.items():
                 parsed = walk(nested, depth + 1)
                 if parsed is not None:
                     return parsed
@@ -2158,6 +2192,16 @@ def parse_registration_payload(payload):
     if parsed is not None:
         return parsed, None
     return None, "Provider response format not recognized"
+
+
+def provider_payload_preview(payload):
+    try:
+        text = json.dumps(payload, ensure_ascii=False, default=str)
+    except TypeError:
+        text = str(payload)
+    text = re.sub(r"[\w.+-]+@[\w-]+\.[\w.-]+", "[email]", text)
+    text = re.sub(r"\+?\d{7,15}", "[number]", text)
+    return text[:900]
 
 
 async def indexed_provider_lookup(name: str, detail: str, identifier: str):
@@ -2209,7 +2253,16 @@ async def indexed_provider_lookup(name: str, detail: str, identifier: str):
     except (httpx.HTTPError, ValueError) as exc:
         logger.warning("Indexed provider lookup unavailable: %s", type(exc).__name__)
         return None, "Provider checker temporarily unavailable"
-    return parse_registration_payload(payload)
+    parsed, error = parse_registration_payload(payload)
+    if parsed is None:
+        logger.warning(
+            "Indexed provider response not recognized for service=%s input_type=%s endpoint=%s preview=%s",
+            service_type,
+            input_type,
+            endpoint,
+            provider_payload_preview(payload),
+        )
+    return parsed, error
 
 
 async def registration_lookup(service: str, number: str):
