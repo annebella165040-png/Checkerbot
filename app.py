@@ -10,7 +10,7 @@ from urllib.parse import urlencode
 from contextlib import closing
 from functools import wraps
 
-from flask import Flask, flash, redirect, render_template, request, session, url_for
+from flask import Flask, Response, flash, redirect, render_template, request, session, url_for
 import httpx
 import phonenumbers
 from phonenumbers import carrier, geocoder, timezone
@@ -2695,6 +2695,26 @@ def admin_panel():
         ekyc_enabled=bool(os.getenv("EKYCPRO_API_KEY", "").strip()),
         checker_enabled=bool(os.getenv("CHECKER_API_KEY", "").strip()),
         mini_app_cost=MINI_APP_COST,
+    )
+
+
+@web.route("/admin/shortcut")
+@admin_required
+def download_admin_shortcut():
+    admin_url = url_for("admin_panel", _external=True)
+    icon_url = url_for("static", filename="logo.svg", _external=True)
+    body = (
+        "[InternetShortcut]\r\n"
+        f"URL={admin_url}\r\n"
+        "IDList=\r\n"
+        f"IconFile={icon_url}\r\n"
+        "IconIndex=0\r\n"
+        "HotKey=0\r\n"
+    )
+    return Response(
+        body,
+        mimetype="application/octet-stream",
+        headers={"Content-Disposition": 'attachment; filename="AnneBella-Checker-Admin.url"'},
     )
 
 

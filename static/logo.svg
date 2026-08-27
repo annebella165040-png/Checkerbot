@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="AnneBella Checker Bot">
+  <defs>
+    <radialGradient id="g" cx="35%" cy="25%" r="75%">
+      <stop offset="0" stop-color="#38c8ff"/>
+      <stop offset=".45" stop-color="#0b3b77"/>
+      <stop offset="1" stop-color="#020810"/>
+    </radialGradient>
+    <linearGradient id="v" x1="110" y1="92" x2="405" y2="424" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#e9fbff"/>
+      <stop offset=".35" stop-color="#42d8ff"/>
+      <stop offset="1" stop-color="#005fe8"/>
+    </linearGradient>
+    <filter id="glow" x="-35%" y="-35%" width="170%" height="170%">
+      <feGaussianBlur stdDeviation="14" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="#020810"/>
+  <circle cx="256" cy="256" r="218" fill="url(#g)" stroke="#2db5ff" stroke-width="14"/>
+  <circle cx="256" cy="256" r="182" fill="none" stroke="#00ead0" stroke-opacity=".28" stroke-width="6"/>
+  <path filter="url(#glow)" d="M138 126h85l43 191 44-191h64l-73 260h-84L138 126z" fill="url(#v)"/>
+  <path d="M117 396c62 42 213 56 284-19" fill="none" stroke="#00ead0" stroke-width="13" stroke-linecap="round" opacity=".8"/>
+  <circle cx="393" cy="128" r="22" fill="#00ead0"/>
+  <circle cx="393" cy="128" r="44" fill="none" stroke="#00ead0" stroke-opacity=".2" stroke-width="8"/>
+</svg>
