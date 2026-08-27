@@ -2201,7 +2201,19 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             if row[1]:
                 unlocked = True
             elif row[0] < MINI_APP_COST:
-                await query.answer(f"Need {MINI_APP_COST - row[0]} more credits", show_alert=True)
+                shortfall = MINI_APP_COST - row[0]
+                await query.edit_message_text(
+                    f"{premium('◆', 'lock')} <b>MINI APP ACCESS LOCKED</b>\n{divider()}\n\n"
+                    f"{premium('◆', 'credits')} <b>REQUIRED:</b> {MINI_APP_COST} credits\n"
+                    f"{premium('◆', 'profile')} <b>YOUR BALANCE:</b> {row[0]} credits\n"
+                    f"{premium('◆', 'warn')} <b>SHORTFALL:</b> {shortfall} credits\n\n"
+                    f"{premium('◆', 'buy')} Buy credits or invite friends to unlock permanent Mini App access.",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=InlineKeyboardMarkup([
+                        [styled_button("BUY CREDIT", "buy", "success", "buy"), styled_button("REFER & EARN", "referral", "primary", "referral")],
+                        [styled_button("BACK TO DASHBOARD", "main_menu", "danger", "back")],
+                    ]),
+                )
                 return
             else:
                 now = int(time.time())
@@ -2593,6 +2605,18 @@ def admin_panel():
         gift_cards = db.execute("SELECT id, code, credits, used_by, used_at, created_at FROM gift_cards ORDER BY id DESC LIMIT 100").fetchall()
         recent_searches = db.execute("SELECT telegram_id, service, phone_suffix, searched_at FROM searches ORDER BY id DESC LIMIT 20").fetchall()
         transactions = db.execute("SELECT telegram_id, amount, kind, note, created_at FROM credit_transactions ORDER BY id DESC LIMIT 25").fetchall()
+        api_keys = db.execute(
+            """
+            SELECT k.id, k.telegram_id, u.username, u.first_name, k.api_key, k.plan_name, k.expires_at, k.active, k.created_at
+            FROM api_keys k
+            LEFT JOIN users u ON u.telegram_id = k.telegram_id
+            ORDER BY k.id DESC LIMIT 75
+            """
+        ).fetchall()
+        mini_users = db.execute(
+            "SELECT telegram_id, username, first_name, credits, last_seen FROM users WHERE mini_app_unlocked = 1 ORDER BY last_seen DESC LIMIT 75"
+        ).fetchall()
+    supported_services = api_service_catalog()
     return render_template(
         "admin.html", bot_name=BOT_NAME, users=users, channels=channels, user_count=user_count,
         search_count=search_count, total_credits=total_credits, pending_count=pending_count,
@@ -2600,6 +2624,10 @@ def admin_panel():
         banned_count=banned_count, open_tickets=open_tickets, unlocked_count=unlocked_count,
         approved_revenue=approved_revenue, recent_searches=recent_searches, transactions=transactions,
         enabled_channel_count=enabled_channel_count, services=SERVICES, check_cost=CHECK_COST,
+        api_keys=api_keys, mini_users=mini_users, supported_services=supported_services,
+        ekyc_enabled=bool(os.getenv("EKYCPRO_API_KEY", "").strip()),
+        checker_enabled=bool(os.getenv("CHECKER_API_KEY", "").strip()),
+        mini_app_cost=MINI_APP_COST,
     )
 
 
@@ -2709,6 +2737,96 @@ def create_gift_card():
         flash(f"Gift card created: {code} ({credits} credits)")
     except sqlite3.IntegrityError:
         flash("That gift-card code already exists")
+    return redirect(url_for("admin_panel"))
+
+
+@web.post("/admin/users/<int:user_id>/mini")
+@admin_required
+def toggle_mini_access(user_id):
+    with closing(db_connect()) as db:
+        row = db.execute("SELECT mini_app_unlocked FROM users WHERE telegram_id = ?", (user_id,)).fetchone()
+        if not row:
+            flash("User not found")
+            return redirect(url_for("admin_panel"))
+        new_value = 0 if row[0] else 1
+        db.execute("UPDATE users SET mini_app_unlocked = ? WHERE telegram_id = ?", (new_value, user_id))
+        db.execute(
+            "INSERT INTO credit_transactions (telegram_id, amount, kind, note, created_at) VALUES (?, 0, 'mini_app', ?, ?)",
+            (user_id, "Admin mini app unlock" if new_value else "Admin mini app lock", int(time.time())),
+        )
+        db.commit()
+    flash("Mini App access updated")
+    notify_user(
+        user_id,
+        f"{premium('◆', 'miniapp')} <b>MINI APP ACCESS {'UNLOCKED' if new_value else 'LOCKED'}</b>\n{divider()}\n\n"
+        f"{premium('◆', 'profile')} Administrator updated your Mini App access status.",
+    )
+    return redirect(url_for("admin_panel"))
+
+
+@web.post("/admin/api-keys")
+@admin_required
+def create_admin_api_key():
+    try:
+        user_id = int(request.form.get("telegram_id", "0"))
+        duration_days = int(request.form.get("duration_days", "30"))
+    except ValueError:
+        flash("Enter a valid Telegram ID and duration")
+        return redirect(url_for("admin_panel"))
+    plan_name = request.form.get("plan_name", "ADMIN API ACCESS").strip()[:80] or "ADMIN API ACCESS"
+    if user_id <= 0 or duration_days <= 0:
+        flash("Enter a valid Telegram ID and positive duration")
+        return redirect(url_for("admin_panel"))
+    with closing(db_connect()) as db:
+        user = db.execute("SELECT telegram_id FROM users WHERE telegram_id = ?", (user_id,)).fetchone()
+        if not user:
+            flash("User not found")
+            return redirect(url_for("admin_panel"))
+        api_key = create_api_key(db, user_id, plan_name, duration_days)
+        db.commit()
+    flash(f"API key created for {user_id}")
+    notify_user(
+        user_id,
+        f"{premium('◆', 'key')} <b>API ACCESS ACTIVATED</b>\n{divider()}\n\n"
+        f"{premium('◆', 'star')} <b>PLAN:</b> {escape(plan_name)}\n"
+        f"{premium('◆', 'history')} <b>DURATION:</b> {duration_days} days\n"
+        f"{premium('◆', 'key')} <b>API KEY:</b> <code>{api_key}</code>",
+    )
+    return redirect(url_for("admin_panel"))
+
+
+@web.post("/admin/api-keys/<int:key_id>/toggle")
+@admin_required
+def toggle_api_key(key_id):
+    with closing(db_connect()) as db:
+        db.execute("UPDATE api_keys SET active = 1 - active WHERE id = ?", (key_id,))
+        db.commit()
+    flash("API key status updated")
+    return redirect(url_for("admin_panel"))
+
+
+@web.post("/admin/broadcast")
+@admin_required
+def send_broadcast():
+    message = request.form.get("message", "").strip()
+    target = request.form.get("target", "all")
+    if len(message) < 3:
+        flash("Broadcast message is too short")
+        return redirect(url_for("admin_panel"))
+    with closing(db_connect()) as db:
+        if target == "mini":
+            rows = db.execute("SELECT telegram_id FROM users WHERE banned = 0 AND mini_app_unlocked = 1").fetchall()
+        elif target == "active":
+            rows = db.execute("SELECT telegram_id FROM users WHERE banned = 0 AND last_seen >= ?", (int(time.time()) - 86400 * 7,)).fetchall()
+        else:
+            rows = db.execute("SELECT telegram_id FROM users WHERE banned = 0").fetchall()
+    sent = 0
+    body = f"{premium('◆', 'rocket')} <b>ANNEBELLA BROADCAST</b>\n{divider()}\n\n{escape(message[:3500])}"
+    for (user_id,) in rows:
+        notify_user(user_id, body)
+        sent += 1
+        time.sleep(0.04)
+    flash(f"Broadcast queued to {sent} users")
     return redirect(url_for("admin_panel"))
 
 
