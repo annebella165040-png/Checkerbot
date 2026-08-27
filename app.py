@@ -2090,21 +2090,74 @@ async def handle_payment_proof(update: Update, context: ContextTypes.DEFAULT_TYP
     )
 
 
+def parse_boolish_registration(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in {0, 1}:
+        return bool(value)
+    if isinstance(value, str):
+        clean = value.strip().lower().replace("-", "_")
+        negative_terms = {
+            "false", "0", "no", "not_registered", "not register", "not registered",
+            "not_found", "not found", "missing", "not_exists", "not exist", "not_exists",
+            "unregistered", "absent", "inactive",
+        }
+        positive_terms = {
+            "true", "1", "yes", "registered", "found", "exists", "exist", "active",
+            "present", "valid", "linked", "used", "taken",
+        }
+        if clean in negative_terms:
+            return False
+        if clean in positive_terms:
+            return True
+        if re.search(r"\b(not\s+registered|not\s+found|not\s+exist|no\s+account|not\s+linked|unregistered)\b", clean):
+            return False
+        if re.search(r"\b(registered|found|exists|exist|active|linked|account\s+found)\b", clean):
+            return True
+    return None
+
+
 def parse_registration_payload(payload):
-    data = payload.get("data") if isinstance(payload, dict) and isinstance(payload.get("data"), dict) else payload
-    if not isinstance(data, dict):
-        return None, "Provider returned an undetermined result"
-    registered = data.get("is_registered", data.get("registered", data.get("exists")))
-    if isinstance(registered, bool):
-        return registered, None
-    if isinstance(registered, str) and registered.lower() in {"true", "false"}:
-        return registered.lower() == "true", None
-    status = str(data.get("status", data.get("result", data.get("state", "")))).strip().lower()
-    if status in {"registered", "found", "active", "true", "yes", "exists"}:
-        return True, None
-    if status in {"not_registered", "not registered", "not-found", "not_found", "false", "no", "missing", "not_exists"}:
-        return False, None
-    return None, "Provider returned an undetermined result"
+    priority_keys = {
+        "is_registered", "registered", "exists", "exist", "is_exist", "found",
+        "is_found", "account_exists", "account_found", "linked", "is_linked",
+        "valid", "available", "status", "state", "result", "message",
+    }
+
+    def walk(value, depth: int = 0):
+        if depth > 5:
+            return None
+        direct = parse_boolish_registration(value)
+        if direct is not None:
+            return direct
+        if isinstance(value, dict):
+            for key in priority_keys:
+                if key in value:
+                    parsed = parse_boolish_registration(value.get(key))
+                    if parsed is not None:
+                        if key == "available":
+                            return not parsed
+                        return parsed
+            for key in ("data", "result", "response", "payload", "check", "account", "user"):
+                if key in value:
+                    parsed = walk(value.get(key), depth + 1)
+                    if parsed is not None:
+                        return parsed
+            for nested in value.values():
+                parsed = walk(nested, depth + 1)
+                if parsed is not None:
+                    return parsed
+        if isinstance(value, list):
+            for item in value:
+                parsed = walk(item, depth + 1)
+                if parsed is not None:
+                    return parsed
+        return None
+
+    parsed = walk(payload)
+    if parsed is not None:
+        return parsed, None
+    return None, "Provider response format not recognized"
 
 
 async def indexed_provider_lookup(name: str, detail: str, identifier: str):
@@ -2119,11 +2172,32 @@ async def indexed_provider_lookup(name: str, detail: str, identifier: str):
     api_url = custom_url or os.getenv("EKYCPRO_API_URL", "https://api.ekycpro.com").strip().rstrip("/")
     endpoint = api_url if custom_url and re.search(r"/check/?$", api_url, re.I) else f"{api_url}/v1/check"
     headers = {"X-API-Key": api_key} if api_key else {}
+    input_match = re.search(r"input_type\s+([a-z0-9_]+)", detail.lower())
+    input_type = input_match.group(1) if input_match else ("email" if "email" in detail.lower() else "number")
+    clean_identifier = identifier.strip()
+    request_body = {
+        "service_type": service_type,
+        "service": service_type,
+        "type": service_type,
+        "identifier": clean_identifier,
+        "value": clean_identifier,
+        "query": clean_identifier,
+        "input_type": input_type,
+    }
+    if input_type == "email":
+        request_body["email"] = clean_identifier
+    elif input_type in {"username", "user"}:
+        request_body["username"] = clean_identifier
+    elif input_type in {"url", "domain", "ip"}:
+        request_body[input_type] = clean_identifier
+    else:
+        request_body["number"] = clean_identifier.lstrip("+")
+        request_body["phone"] = clean_identifier
     try:
         async with httpx.AsyncClient(timeout=18) as client:
             response = await client.post(
                 endpoint,
-                json={"service_type": service_type, "identifier": identifier.strip()},
+                json=request_body,
                 headers=headers,
             )
             if response.status_code in {401, 403}:
